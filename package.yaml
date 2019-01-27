@@ -21,6 +21,11 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- llvm-hs >= 7.0.0
+- llvm-hs-pure >= 7.0.0
+- mtl >= 2.2.2
+- bytestring >= 0.10.8.2
+- command >= 0.1.1
 
 library:
   source-dirs: src

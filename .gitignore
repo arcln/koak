@@ -1,3 +1,5 @@
 .stack-work/
 koak.cabal
 *~
+koak
+a.out
