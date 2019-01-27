@@ -14,19 +14,24 @@ linker = "gcc"
 parse :: String -> Syntax.Expr
 parse input = Syntax.Float 0
 
-run :: String -> IO String
-run input = Compiler.compile $ parse input
-
-start :: [String] -> IO ()
-start [] = abort "no input files"
-start args = do
-  content <- readFile file
-  asm <- run content
+runCompiler :: String -> IO ()
+runCompiler filename = do
+  content <- readFile filename
+  asm <- Compiler.compile $ parse content
   writeFile "__tmp__.ll" asm
   command_ [] compiler ["__tmp__.ll"]
   command_ [] linker ["__tmp__.s"]
-  command_ [] "rm" ["__tmp__.ll", "__tmp__.s"]
-  where file = head args
+  -- command_ [] "rm" ["__tmp__.ll", "__tmp__.s"]
+
+runInterpreter :: IO ()
+runInterpreter = do
+  input <- getLine
+  Compiler.jit $ parse input
+  runInterpreter
+
+start :: [String] -> IO ()
+start [] = runInterpreter
+start args = runCompiler $ head args
 
 main :: IO ()
 main = start =<< getArgs

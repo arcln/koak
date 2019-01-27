@@ -1,53 +1,64 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 
-module Compiler (compile, simple) where
+module Compiler (compile, jit) where
 
-import LLVM.Module
-import LLVM.Context
-import LLVM.IRBuilder
-
-import qualified LLVM.AST as AST
-import qualified LLVM.AST.Type as Type
-import qualified LLVM.AST.Constant as Constant
+import           Control.Monad.Except
+import           Foreign.Ptr (FunPtr, castFunPtr)
 import qualified Data.ByteString.Char8 as BS
+
+import           LLVM.Module
+import           LLVM.Context
+import           LLVM.PassManager
+import           LLVM.Transforms
+import           LLVM.Analysis
+import           LLVM.IRBuilder
+import           LLVM.AST.Type
+import qualified LLVM.AST              as AST
+import qualified LLVM.AST.Constant     as C
+import qualified LLVM.ExecutionEngine  as EE
+
+import           Codegen
 import qualified Syntax
 
-simple :: AST.Module
-simple = buildModule "exampleModule" $ mdo
-  function "add" [(Type.i32, "a"), (Type.i32, "b")] Type.i32 $ \[a, b] -> mdo
-    entry <- block `named` "entry"; do
-      c <- add a b
-      ret c
+foreign import ccall "dynamic" haskFun :: FunPtr (IO Int) -> (IO Int)
 
-genMain :: AST.Module
-genMain = buildModule "exampleModule" $ mdo
-  function "main" [] Type.i32 $ \[] -> mdo
-    entry <- block `named` "entry"; do
-      ret $ AST.ConstantOperand $ Constant.Int 32 0
+optimizationPasses = defaultCuratedPassSetSpec { optLevel = Just 3 }
 
-codegen :: Syntax.Expr -> AST.Module
-codegen _ = genMain
+preprocess :: Syntax.Expr -> AST.Module
+preprocess expr = buildModule "main" $ codegen expr
+
+jitCompiler :: Context -> (EE.MCJIT -> IO a) -> IO a
+jitCompiler c = EE.withMCJIT c optlevel model ptrelim fastins
+  where
+    optlevel = Just 2
+    model    = Nothing
+    ptrelim  = Nothing
+    fastins  = Nothing
 
 compile :: Syntax.Expr -> IO String
-compile expr = postProcess $ codegen expr
-  where
-    postProcess m = withContext $ \context ->
-      withModuleFromAST context m $ \compiledModule -> do
-        llstr <- moduleLLVMAssembly compiledModule
-        return $ BS.unpack llstr
+compile expr = withContext $ \context ->
+  withModuleFromAST context (preprocess expr) $ \compiledModule ->
+    withPassManager optimizationPasses $ \pm -> do
+      runPassManager pm compiledModule
+      asm <- moduleLLVMAssembly compiledModule
+      return $ BS.unpack asm
 
--- type SymbolTable = [(String, AST.Operand)]
-
--- type Argument = (AST.Type, AST.Name)
-
--- newtype Compiler a = Compiler (State AST.Module a)
---   deriving (Functor, Applicative, Monad, MonadState AST.Module)
-
--- compile :: AST.Module -> Compiler a -> AST.Module
--- compile m (Compiler c) = execState c m
-
--- define :: String -> AST.Type -> [Argument] ->
-
--- createModule :: String -> AST.Module
--- createModule name = defaultModule { moduleName = label }
+jit :: Syntax.Expr -> IO ()
+jit expr = withContext $ \context ->
+  jitCompiler context $ \executionEngine ->
+    withModuleFromAST context (preprocess expr) $ \compiledModule ->
+      withPassManager optimizationPasses $ \pm -> do
+        runPassManager pm compiledModule
+        -- asm <- moduleLLVMAssembly compiledModule
+        -- putStrLn $ BS.unpack asm
+        -- putStrLn "==================="
+        EE.withModuleInEngine executionEngine compiledModule $ \ee -> do
+          mainfn <- EE.getFunction ee (AST.Name "main")
+          case mainfn of
+            Just fn -> do
+              res <- runCEntrypoint fn
+              putStrLn $ show res
+            Nothing -> return ()
+        return ()
+  where runCEntrypoint fn = haskFun (castFunPtr fn :: FunPtr (IO Int))
