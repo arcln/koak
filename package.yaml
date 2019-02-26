@@ -28,7 +28,6 @@ dependencies:
 - command >= 0.1.1
 - containers >= 0.6.0.1
 
-
 library:
   source-dirs: src
 
@@ -53,3 +52,6 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - koak
+    - hspec
+    - process
+    - unix

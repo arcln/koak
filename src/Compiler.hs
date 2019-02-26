@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 
-module Compiler (compile, jit) where
+module Compiler (compile, runCompiler, jit) where
 
 import           Control.Monad.Except
 import           Foreign.Ptr (FunPtr, castFunPtr)
@@ -17,12 +17,16 @@ import           LLVM.AST.Type
 import qualified LLVM.AST              as AST
 import qualified LLVM.AST.Constant     as C
 import qualified LLVM.ExecutionEngine  as EE
+import           System.Command
+
 
 import           Codegen
 import qualified Syntax
 
 foreign import ccall "dynamic" haskFun :: FunPtr (IO Double) -> (IO Double)
 
+compiler = "llc-7.0"
+linker = "gcc"
 optimizationPasses = defaultCuratedPassSetSpec { optLevel = Just 3 }
 
 preprocess :: [Syntax.Expr] -> AST.Module
@@ -62,3 +66,12 @@ jit expr = withContext $ \context ->
             Nothing -> return ()
         return ()
   where runCEntrypoint fn = haskFun (castFunPtr fn :: FunPtr (IO Double))
+
+runCompiler :: String -> IO ()
+runCompiler filename = do
+  content <- readFile filename
+  asm <- Compiler.compile $ Syntax.parse content
+  writeFile "__tmp__.ll" asm
+  command_ [] compiler ["__tmp__.ll"]
+  command_ [] linker ["__tmp__.s"]
+  -- command_ [] "rm" ["__tmp__.ll", "__tmp__.s"]
