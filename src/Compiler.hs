@@ -21,12 +21,12 @@ import qualified LLVM.ExecutionEngine  as EE
 import           Codegen
 import qualified Syntax
 
-foreign import ccall "dynamic" haskFun :: FunPtr (IO Int) -> (IO Int)
+foreign import ccall "dynamic" haskFun :: FunPtr (IO Double) -> (IO Double)
 
 optimizationPasses = defaultCuratedPassSetSpec { optLevel = Just 3 }
 
-preprocess :: Syntax.Expr -> AST.Module
-preprocess expr = buildModule "main" $ codegen expr
+preprocess :: [Syntax.Expr] -> AST.Module
+preprocess expr = buildModule "main" $ startCodegen expr
 
 jitCompiler :: Context -> (EE.MCJIT -> IO a) -> IO a
 jitCompiler c = EE.withMCJIT c optlevel model ptrelim fastins
@@ -36,23 +36,23 @@ jitCompiler c = EE.withMCJIT c optlevel model ptrelim fastins
     ptrelim  = Nothing
     fastins  = Nothing
 
-compile :: Syntax.Expr -> IO String
+compile :: [Syntax.Expr] -> IO String
 compile expr = withContext $ \context ->
   withModuleFromAST context (preprocess expr) $ \compiledModule ->
     withPassManager optimizationPasses $ \pm -> do
-      runPassManager pm compiledModule
+      -- runPassManager pm compiledModule
       asm <- moduleLLVMAssembly compiledModule
       return $ BS.unpack asm
 
-jit :: Syntax.Expr -> IO ()
+jit :: [Syntax.Expr] -> IO ()
 jit expr = withContext $ \context ->
   jitCompiler context $ \executionEngine ->
     withModuleFromAST context (preprocess expr) $ \compiledModule ->
       withPassManager optimizationPasses $ \pm -> do
         runPassManager pm compiledModule
-        -- asm <- moduleLLVMAssembly compiledModule
-        -- putStrLn $ BS.unpack asm
-        -- putStrLn "==================="
+        asm <- moduleLLVMAssembly compiledModule
+        putStrLn $ BS.unpack asm
+        putStrLn "==================="
         EE.withModuleInEngine executionEngine compiledModule $ \ee -> do
           mainfn <- EE.getFunction ee (AST.Name "main")
           case mainfn of
@@ -61,4 +61,4 @@ jit expr = withContext $ \context ->
               putStrLn $ show res
             Nothing -> return ()
         return ()
-  where runCEntrypoint fn = haskFun (castFunPtr fn :: FunPtr (IO Int))
+  where runCEntrypoint fn = haskFun (castFunPtr fn :: FunPtr (IO Double))

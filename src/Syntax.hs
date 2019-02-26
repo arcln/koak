@@ -4,12 +4,14 @@ module Syntax
     , Op (..)
     ) where
 
-type Name = String
+import Data.ByteString.Short
+
+type Name = ShortByteString
     
 data Expr
     = Float Double
     | BinOp Op Expr Expr
-    | Var String
+    | Var Name
     | Call Name [Expr]
     | Function Name [Expr] Expr
     | Extern Name [Expr]

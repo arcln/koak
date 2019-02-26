@@ -11,8 +11,8 @@ import qualified LLVM.Module
 compiler = "llc-7.0"
 linker = "gcc"
 
-parse :: String -> Syntax.Expr
-parse input = Syntax.Float 0
+parse :: String -> [Syntax.Expr]
+parse input = undefined
 
 runCompiler :: String -> IO ()
 runCompiler filename = do
