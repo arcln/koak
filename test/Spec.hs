@@ -8,18 +8,19 @@ import qualified LLVM.AST              as AST
 
 import qualified Compiler
 import qualified Syntax
+import qualified Testcases
 
 exec :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, ProcessHandle)
 exec cmd = do
   createProcess (proc "bash" ["-c", escapedCmd]){ std_out = CreatePipe }
   where escapedCmd = '"' : cmd ++ "\"" -- FIXME the command isn't really escaped. But we doesn't really need it.
 
-testcasePath :: String -> String
-testcasePath path = "./test/testcases/" ++ path
+testcasePath :: String -> String -> String
+testcasePath folder path = "./test/testcases/" ++ folder ++ ('/':path)
 
 testCompilationAndOutput :: String -> String -> IO ()
 testCompilationAndOutput path expected = do
-  Compiler.runCompiler $ testcasePath path
+  Compiler.runCompiler $ testcasePath "kaleidoscope" path
   (_, hout, _, _) <- exec "./a.out"
   case hout of
     Nothing   -> do putStrLn "An error occurred..."; exitFailure
@@ -30,7 +31,7 @@ testCompilationAndOutput path expected = do
 testCodeGeneration :: [Syntax.Expr] -> String -> IO ()
 testCodeGeneration es expectedPath = do
   asm <- Compiler.compile es
-  expected <- readFile $ testcasePath expectedPath
+  expected <- readFile $ testcasePath "asm" expectedPath
   asm `shouldBe` expected
 
 testParsing :: String -> [Syntax.Expr] -> IO ()
@@ -40,7 +41,7 @@ main :: IO ()
 main = hspec $ do
   describe "Code generation" $ do
     it "generate a float" $ do
-      testCodeGeneration [Syntax.Float 42] "42.asm"
+      testCodeGeneration Testcases.float42 "42.asm"
   describe "Compilation and output" $ do
     it "prints Hello, World!" $ do
       testCompilationAndOutput "hello_world.kk" "Hello, World!\n"
