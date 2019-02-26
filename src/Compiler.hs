@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 
-module Compiler (compile, runCompiler, jit) where
+module Compiler (preprocess, compile, runCompiler, jit) where
 
 import           Control.Monad.Except
 import           Foreign.Ptr (FunPtr, castFunPtr)

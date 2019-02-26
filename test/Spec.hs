@@ -4,20 +4,22 @@ import           System.IO
 import           System.Process
 import           System.Exit
 import           System.Posix.Files
+import qualified LLVM.AST              as AST
+
 import qualified Compiler
+import qualified Syntax
 
 exec :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, ProcessHandle)
 exec cmd = do
   createProcess (proc "bash" ["-c", escapedCmd]){ std_out = CreatePipe }
-  where escapedCmd = '"' : cmd ++ "\""
+  where escapedCmd = '"' : cmd ++ "\"" -- FIXME the command isn't really escaped. But we doesn't really need it.
 
-compileAndCheckOutput path expected = do
-  -- let binPath = "./kaleidobin"
-  -- code <- readFile $ "./test/testcases/" ++ path
-  Compiler.runCompiler $ "./test/testcases/" ++ path
-  -- writeFile binPath code
-  -- setFileMode binPath $ foldl unionFileModes ownerReadMode [ownerWriteMode, ownerExecuteMode]
+testcasePath :: String -> String
+testcasePath path = "./test/testcases/" ++ path
 
+testCompilationAndOutput :: String -> String -> IO ()
+testCompilationAndOutput path expected = do
+  Compiler.runCompiler $ testcasePath path
   (_, hout, _, _) <- exec "./a.out"
   case hout of
     Nothing   -> do putStrLn "An error occurred..."; exitFailure
@@ -25,9 +27,20 @@ compileAndCheckOutput path expected = do
       output <- hGetContents hout
       output `shouldBe` expected
 
+testCodeGeneration :: [Syntax.Expr] -> String -> IO ()
+testCodeGeneration es expectedPath = do
+  asm <- Compiler.compile es
+  expected <- readFile $ testcasePath expectedPath
+  asm `shouldBe` expected
+
+testParsing :: String -> [Syntax.Expr] -> IO ()
+testParsing path expected = undefined
+
 main :: IO ()
 main = hspec $ do
-  describe "Hello world" $ do
+  describe "Code generation" $ do
+    it "generate a float" $ do
+      testCodeGeneration [Syntax.Float 42] "42.asm"
+  describe "Compilation and output" $ do
     it "prints Hello, World!" $ do
-      compileAndCheckOutput "hello_world.kk" "Hello, World!\n"
-
+      testCompilationAndOutput "hello_world.kk" "Hello, World!\n"
