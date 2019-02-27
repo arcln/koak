@@ -66,22 +66,28 @@ buildArg (Syntax.Var name) = do
   var <- alloca Types.double Nothing align
   return (name, var)
 
-buildFunction :: Syntax.Name -> [Syntax.Expr] -> Syntax.Expr -> ModuleBuilder ()
+buildFunction :: Syntax.Name -> [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()
 buildFunction name args body = do
-  function (AST.Name name) args' Types.double $ \[] -> mdo
-    stackArgs' <- sequence stackArgs
-    entry <- block `named` "entry"
-    ret =<< (codegen body $ CodegenState (stackArgs'))
+  function (AST.Name name) args' Types.double bodyBuilder
   return ()
   where
     args' = map (\(Syntax.Var a) -> (Types.double, LLVM.IRBuilder.ParameterName a)) args
     stackArgs = map buildArg args
 
-startCodegen :: [Syntax.Expr] -> ModuleBuilder ()
-startCodegen [] = return ()
-startCodegen (Syntax.Function name args body:es) = do
-  buildFunction name args body
-  startCodegen es
-startCodegen (expr:es) = do
-  buildFunction "main" [] expr
-  startCodegen es
+    bodyBuilder :: [AST.Operand] -> IRBuilderT ModuleBuilder ()
+    bodyBuilder [] = mdo
+      stackArgs' <- sequence stackArgs
+      entry <- block `named` "entry"
+      bodyOps <- sequence $ map (\e -> (codegen e $ CodegenState stackArgs')) body
+      ret $ last bodyOps
+      return ()
+
+startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()
+startCodegen [] []      = return ()
+startCodegen [] mainEs  = do
+  buildFunction "main" [] $ reverse mainEs
+  return ()
+startCodegen (Syntax.Function name args body:es) mainEs = do
+  buildFunction name args [body]
+  startCodegen es mainEs
+startCodegen (expr:es) mainEs = startCodegen es (expr:mainEs)

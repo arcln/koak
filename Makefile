@@ -27,6 +27,6 @@ watch:
 	stack build --file-watch
 
 test:
-	@stack test
+	@stack test --fast --file-watch
 
 .PHONY: all clean fclean re watch test

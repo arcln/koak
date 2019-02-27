@@ -30,7 +30,7 @@ linker = "gcc"
 optimizationPasses = defaultCuratedPassSetSpec { optLevel = Just 3 }
 
 preprocess :: [Syntax.Expr] -> AST.Module
-preprocess expr = buildModule "main" $ startCodegen expr
+preprocess expr = buildModule "main" $ startCodegen expr []
 
 jitCompiler :: Context -> (EE.MCJIT -> IO a) -> IO a
 jitCompiler c = EE.withMCJIT c optlevel model ptrelim fastins

@@ -40,8 +40,10 @@ testParsing path expected = undefined
 main :: IO ()
 main = hspec $ do
   describe "Code generation" $ do
-    it "generate a float" $ do
+    it "generate a function returning a float" $ do
       testCodeGeneration Testcases.float42 "42.asm"
+    it "generate a function returning the last expression value" $ do
+      testCodeGeneration Testcases.floatsEndingWith42 "42.asm"
   describe "Compilation and output" $ do
     it "prints Hello, World!" $ do
       testCompilationAndOutput "hello_world.kk" "Hello, World!\n"
