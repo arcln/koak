@@ -35,10 +35,16 @@ testCodeGeneration es expectedPath = do
   asm `shouldBe` expected
 
 testParsing :: String -> [Syntax.Expr] -> IO ()
-testParsing path expected = undefined
+testParsing path expected = do
+  code <- readFile $ testcasePath "kaleidoscope" path
+  (Syntax.parse code) `shouldBe` expected
 
 main :: IO ()
 main = hspec $ do
+  describe "Parsing" $ do
+    it "parse Hello, World!" $ do
+      testParsing "hello_world.kk" Testcases.printHelloWorld
+
   describe "Code generation" $ do
     it "generate a main function returning a float" $ do
       testCodeGeneration Testcases.float42 "42.asm"
@@ -50,6 +56,7 @@ main = hspec $ do
       testCodeGeneration Testcases.functionCallWithNoArgument "42.asm"
     it "generate two functions with one calling the other with an argument" $ do
       testCodeGeneration Testcases.functionCallWithFloatArgument "42.asm"
+
   describe "Compilation and output" $ do
     it "prints Hello, World!" $ do
       testCompilationAndOutput "hello_world.kk" "Hello, World!\n"

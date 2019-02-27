@@ -26,3 +26,5 @@ functionCallWithFloatArgument =
   where
     arg         = Var (fromString "arg" :: Name)
     calleeName  = (fromString "returnFirstArg" :: Name)
+
+printHelloWorld = undefined -- TODO implement with an AST a function printing hello world
