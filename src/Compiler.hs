@@ -27,7 +27,7 @@ import qualified Syntax
 
 foreign import ccall "dynamic" haskFun :: FunPtr (IO Double) -> (IO Double)
 
-compiler = "llc-7.0"
+compiler = "llc"
 linker = "gcc"
 optimizationPasses = defaultCuratedPassSetSpec { optLevel = Just 3 }
 
