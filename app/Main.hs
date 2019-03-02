@@ -8,11 +8,16 @@ import qualified Syntax
 import qualified Compiler
 import qualified LLVM.Module
 
+import Debug.Trace
+
 runInterpreter :: IO ()
 runInterpreter = do
   input <- getLine
-  Compiler.jit $ Syntax.parse input
-  runInterpreter
+  case Syntax.parse input of
+    Left ((i, j), err) -> putStrLn err
+    Right exprs -> trace (show exprs) $ do
+      Compiler.jit $ exprs
+      runInterpreter
 
 start :: [String] -> IO ()
 start [] = runInterpreter

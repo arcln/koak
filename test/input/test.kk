@@ -1,2 +1,2 @@
-def foo(x: int): int x * x
-foo (3) * 2
+def foo(x: int): int x * x;
+foo(3) * 2;
