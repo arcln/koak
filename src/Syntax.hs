@@ -11,8 +11,9 @@ import Control.Applicative
 import Data.String.Encode
 import Data.ByteString.Short
 import Debug.Trace
-
 import Persa.Parser
+
+import Data.ByteString.Char8 as BS
 
 type Name = ShortByteString
 
@@ -26,15 +27,18 @@ data Expr
     | Extern Name [Expr]
     | Arg Name Type
     | Block [Expr]
+    | If Expr Expr Expr
+    -- | For Name Expr Expr Expr Expr
     deriving (Eq, Ord, Show)
 
 data Op
     = Plus
-    | Substract
+    | Minus
     | Times
     | Divide
     | Not
-    | Minus
+    | Eq
+    | NotEq
     deriving (Eq, Ord, Show)
 
 data Type
@@ -221,7 +225,7 @@ pOperator :: String -> a -> Parser a
 pOperator c op = reserved c >> return op
 
 pBinOpLow :: Parser (Expr -> Expr -> Expr)
-pBinOpLow = pOperator "+" (BinOp Plus) <|> pOperator "-" (BinOp Substract)
+pBinOpLow = pOperator "+" (BinOp Plus) <|> pOperator "-" (BinOp Minus)
 
 pBinOpHigh :: Parser (Expr -> Expr -> Expr)
 pBinOpHigh = pOperator "*" (BinOp Times) <|> pOperator "/" (BinOp Divide)

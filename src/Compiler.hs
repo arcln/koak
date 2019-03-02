@@ -55,7 +55,7 @@ jit expr = withContext $ \context ->
   jitCompiler context $ \executionEngine ->
     withModuleFromAST context (preprocess expr) $ \compiledModule ->
       withPassManager optimizationPasses $ \pm -> do
-        runPassManager pm compiledModule
+        -- runPassManager pm compiledModule
         asm <- moduleLLVMAssembly compiledModule
         putStrLn $ BS.unpack asm
         putStrLn "==================="
