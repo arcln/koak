@@ -42,6 +42,8 @@ extra-deps:
 - llvm-hs-7.0.1
 - command-0.1.1
 - containers-0.6.0.1
+- encode-string-0.1.0.0
+
 # - llvm-config-7.0.0m
 
 # Override default flag values for local packages and extra-deps

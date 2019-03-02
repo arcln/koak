@@ -5,10 +5,12 @@ module Syntax
     , Syntax.parse
     ) where
 
+import Prelude
 import Control.Monad
 import Control.Applicative
 import Data.String.Encode
 import Data.ByteString.Short
+import Debug.Trace
 
 import Persa.Parser
 
@@ -20,9 +22,10 @@ data Expr
     | UnOp Op Expr
     | Var Name
     | Call Name [Expr]
-    | Function Name [Arg] Expr
+    | Function Name [Expr] Expr
     | Extern Name [Expr]
     | Arg Name Type
+    | Block [Expr]
     deriving (Eq, Ord, Show)
 
 data Op
@@ -43,18 +46,17 @@ data Type
 --- for_expr       <- 'for ' identifier '=' expression ',' identifier '<' expression ',' expression 'in ' expressions
 --- if_expr        <- 'if ' expression 'then ' expressions ('else ' expressions ) ?
 --- while_expr     <- 'while ' expression 'do ' expressions
---- unary          <- # unop unary | postfix
---- postfix        <- primary call_expr ?
---- dot            <- '.' !'.'
 
 -- stmt <- kdefs * # eof
 pStmt :: Parser [Expr]
-pStmt = many pKdefs
+pStmt = trace "pStmt" $ do {
+  k <- pKdefs;
+  return [k];
+}
 
 -- kdefs <- 'def ' defs ';' | expressions ';'
 pKdefs :: Parser Expr
-pKdefs = do {
-  spaces;
+pKdefs = trace "pKdefs" $ do {
   reserved "def";
   def <- pDefs;
   reserved ";";
@@ -67,34 +69,34 @@ pKdefs = do {
 }
 
 -- defs <- prototype expressions
-pDefs :: Parser Function
-pDefs = do {
+pDefs :: Parser Expr
+pDefs = trace "pDefs" $ do {
   (id, (args, _)) <- pPrototype;
   exprs <- pExpressions;
   return $ Function id args exprs
 }
 
 -- prototype <- ('unary ' . decimal_const ? | 'binary ' . decimal_const ? | identifier) prototype_args
-pPrototype :: Parser (String, ([Arg], Type))
-pPrototype = do {
+pPrototype :: Parser (Name, ([Expr], Type))
+pPrototype = trace "pPrototype" $ do {
   id <- pIdentifier;
   proto <- pPrototypeArgs;
   return (id, proto);
 }
 
 -- prototype_args <- '(' ( identifier ':' type ) * ')' ':' type
-pPrototypeArgs :: Parser ([Arg], Type)
-pPrototypeArgs = do {
+pPrototypeArgs :: Parser ([Expr], Type)
+pPrototypeArgs = trace "pPrototypeArgs" $ do {
   reserved "(";
-  args <- many pArg
+  args <- many pArg;
   reserved ")";
   reserved ":";
   ret <- pType;
   return (args, ret);
 }
   where
-    pArg :: Parser Var
-    pArg = do {
+    pArg :: Parser Expr
+    pArg = trace "pArg" $ do {
       id <- pIdentifier;
       reserved ":";
       t <- pType;
@@ -103,74 +105,126 @@ pPrototypeArgs = do {
 
 -- type <- 'int ' | 'double ' | 'void '
 pType :: Parser Type
-pType = do {
+pType = trace "pType" $ do {
   t <- reserved "int" <|> reserved "double" <|> reserved "void";
   return (case t of
-    "int" = Int
-    "double" = Double
-    "void" = Void)
+    "int" -> Int
+    "double" -> Double
+    "void" -> Void)
 }
 
 -- expressions <- for_expr | if_expr | while_expr | expression (':' expression ) *
-pExpressions :: Parser [Expr]
-pExpressions = pForExpr <|> pIfExpr <|> pWhileExpr <|> do {
-  expr <- pExpressions;
-  exprs <- many (do {
+pExpressions :: Parser Expr
+pExpressions = trace "pExpressions" $ do { --pForExpr <|> pIfExpr <|> pWhileExpr <|> do {
+  expr <- pExpression;
+  exprs <- many (trace "exprs" $ do {
     reserved ":";
-    return pExpression;
+    pExpression;
   });
-  return expr:exprs;
+  return $ Block [expr];
 }
 
 --- expression <- unary (# binop ( unary | expression ) ) *
-pExpression = undefined
+pExpression :: Parser Expr
+pExpression = trace "pExpression" $ pTerm `pChain` pBinOpLow
 
-pBinOp :: Parser BinOp
-pBinOp = undefined
-
-pUnOp :: Parser UnOp
-pUnOp = undefined
+pTerm :: Parser Expr
+pTerm = trace "pTerm" $ (pUnary <|> pExpression) `pChain` pBinOpHigh
 
 -- call_expr <- '(' ( expression (',' expression ) *) ? ')'
 pCallExpr :: Parser [Expr]
-pCallExpr = parens $ optional (do {
-  expr <- pExpression;
-  exprs <- many (do {
-    reserved ",";
-    return pExpression;
-  }) <|> return [];
-  return expr:exprs;
+pCallExpr = trace "pCallExpr" $ parens (do {
+  ma <- optional pCallArgs;
+  return (case ma of
+    Just args -> args
+    Nothing -> []);
 })
+  where
+    pCallArgs :: Parser [Expr]
+    pCallArgs = trace "pCallArgs" $ do {
+      expr <- pExpression;
+      exprs <- many (do {
+        reserved ",";
+        pExpression
+      }) <|> return [];
+      return (expr:exprs);
+    }
+
+-- unary <- # unop unary | postfix
+pUnary :: Parser Expr
+pUnary = trace "pUnary" $ (do {
+  op <- pUnOp;
+  un <- pUnary;
+  return $ op un;
+}) <|> pPostfix
+
+-- postfix <- primary call_expr ?
+pPostfix :: Parser Expr
+pPostfix = trace "pPostfix" $ do {
+  p <- pPrimary;
+  c <- optional pCallExpr;
+  return (case c of
+    Just ce -> case p of
+      Var name -> Call name ce
+      otherwise -> p
+    Nothing -> p)
+}
 
 -- primary <- identifier | literal | '(' expressions ')
 pPrimary :: Parser Expr
-pPrimary = pIdentifier <|> pLiteral <|> (do {
-
-})
+pPrimary = trace "pPrimary" $ (fmap (\n -> Var n) pIdentifier) <|> pLiteral <|> do {
+  trace "1" $ reserved "(";
+  exprs <- trace "2" $ pExpressions;
+  trace "3" $ reserved ")";
+  return exprs;
+}
 
 -- identifier <- [a - zA - Z ][ a - zA - Z0 -9]*
 pIdentifier :: Parser Name
-pIdentifier = do {
+pIdentifier = trace "pIdentifier" $ do {
   f <- oneOf (['a'..'z'] ++ ['A'..'Z']);
   o <- many $ oneOf (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']);
   return $ convertString (f:o);
 }
 
 -- decimal_const <- [0 -9]+
-pDecimalConst :: Parser Int
-pDecimalConst = number
+pDecimalConst :: Parser Double
+pDecimalConst = trace "pDecimalConst" $ do {
+  n <- number;
+  return $ fromIntegral n;
+}
 
 -- double_const <- ( decimal_const dot [0 -9]* | dot [0 -9]+ )
 pDoubleConst :: Parser Double
-pDoubleConst = fractional
+pDoubleConst = trace "pDoubleConst" $ fractional
 
 -- literal <- decimal_const | double_const
-pLiteral :: Parser Float
-pLiteral = Float (pDecimalConst <|> pDoubleConst)
+pLiteral :: Parser Expr
+pLiteral = trace "pLiteral" $ do {
+  f <- pDecimalConst <|> pDoubleConst;
+  return $ Float f;
+}
 
-parse :: String -> [Syntax.Expr]
-parse input = undefined
+pChain :: Parser Expr -> Parser (Expr -> Expr -> Expr) -> Parser Expr
+pChain expr op = trace "pChain" $ do {e <- expr; chain e}
+  where
+    chain e = trace "chain" $ (do {
+      o <- op;
+      e2 <- expr;
+      chain (o e e2);
+    }) <|> return e
 
--- case runParser pXMLFile contents of
---     Left err -> putStrLn (show err) >>= (\_ -> exitWith (ExitFailure 84))
---     Right res -> putStrLn $ show $ toXSD res
+pOperator :: String -> a -> Parser a
+pOperator c op = trace "pOperator" $ reserved c >> return op
+
+pBinOpLow :: Parser (Expr -> Expr -> Expr)
+pBinOpLow = trace "pBinOpLow" $ pOperator "+" (BinOp Plus) <|> pOperator "-" (BinOp Substract)
+
+pBinOpHigh :: Parser (Expr -> Expr -> Expr)
+pBinOpHigh = trace "pBinOpHigh" $ pOperator "*" (BinOp Times) <|> pOperator "/" (BinOp Divide)
+
+pUnOp :: Parser (Expr -> Expr)
+pUnOp = trace "pUnOp" $ pOperator "!" (UnOp Not) <|> pOperator "-" (UnOp Minus)
+
+parse :: String -> Either ParseError [Syntax.Expr]
+parse input = runParser pStmt input

@@ -19,6 +19,8 @@ import qualified LLVM.AST.Constant     as C
 import qualified LLVM.ExecutionEngine  as EE
 import           System.Command
 
+import Debug.Trace
+
 
 import           Codegen
 import qualified Syntax
@@ -70,8 +72,11 @@ jit expr = withContext $ \context ->
 runCompiler :: String -> IO ()
 runCompiler filename = do
   content <- readFile filename
-  asm <- Compiler.compile $ Syntax.parse content
-  writeFile "__tmp__.ll" asm
-  command_ [] compiler ["__tmp__.ll"]
-  command_ [] linker ["__tmp__.s"]
-  -- command_ [] "rm" ["__tmp__.ll", "__tmp__.s"]
+  case Syntax.parse content of
+    Left ((i, j), err) -> putStrLn $ "error: " ++ show err
+    Right exprs -> trace ("exprs:" ++ show exprs) $ do
+      asm <- Compiler.compile $ exprs
+      writeFile "__tmp__.ll" asm
+      command_ [] compiler ["__tmp__.ll"]
+      command_ [] linker ["__tmp__.s"]
+      -- command_ [] "rm" ["__tmp__.ll", "__tmp__.s"]

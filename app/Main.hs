@@ -11,8 +11,11 @@ import qualified LLVM.Module
 runInterpreter :: IO ()
 runInterpreter = do
   input <- getLine
-  Compiler.jit $ Syntax.parse input
-  runInterpreter
+  case Syntax.parse input of
+    Left ((i, j), err) -> putStrLn err
+    Right exprs -> do
+      Compiler.jit $ exprs
+      runInterpreter
 
 start :: [String] -> IO ()
 start [] = runInterpreter

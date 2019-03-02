@@ -10,6 +10,7 @@ import Data.Char
 import Data.Typeable
 
 import Persa.Reader
+type ParseError = ((Int, Int), String)
 
 newtype Parser a = Parser {
   parse :: Reader -> State [((Int, Int), String)] (Either String a, Reader)
@@ -155,6 +156,7 @@ parens pa = do {
 }
 
 getDeepestErr :: [((Int, Int), String)] -> ((Int, Int), String)
+getDeepestErr [] = ((-1, -1), "")
 getDeepestErr errs = foldr1 (\a b -> if a `deeperThan` b then a else b) errs
   where
     deeperThan ((x, y), _) ((x2, y2), _') | x == x2 = y > y2

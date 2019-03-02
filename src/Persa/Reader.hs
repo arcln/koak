@@ -5,6 +5,9 @@ import Debug.Trace
 
 data Reader = Reader String [(Int, Int)]
 
+instance Show Reader where
+  show (Reader str _) = "Reader: [" ++ str ++ "]"
+
 makeReader :: String -> Reader
 makeReader s = Reader s ss'''
   where
