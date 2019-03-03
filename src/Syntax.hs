@@ -15,7 +15,6 @@ import Data.ByteString.Short
 import Debug.Trace
 import Persa.Parser
 
-import Data.ByteString.Char8 as BS
 import LLVM.AST.Type         as LLVM
 
 type Name = ShortByteString
@@ -27,7 +26,7 @@ data Expr
     | Var Name
     | Call Name [Expr]
     | Function Name [Expr] Type Expr
-    | Extern Name [Expr]
+    | Extern Name [Type] Type
     | Arg Name Type
     | Block [Expr]
     | If Expr Expr Expr
@@ -45,8 +44,11 @@ data Op
     deriving (Eq, Ord, Show)
 
 data Value
-    = Int Integer
+    = Void
+    | Int Integer
     | Double Double
+    | Str String
+    | Array Value
     deriving (Eq, Ord, Show)
 
 --- for_expr       <- 'for ' identifier '=' expression ',' identifier '<' expression ',' expression 'in ' expressions
@@ -62,7 +64,7 @@ pStmt = do {
 
 -- kdefs <- 'def ' defs ';' | expressions ';'
 pKdefs :: Parser Expr
-pKdefs = do {
+pKdefs = pExtern <|> do {
   reserved "def";
   def <- pDefs;
   reserved ";";
@@ -112,10 +114,11 @@ pPrototypeArgs = do {
 -- type <- 'int ' | 'double ' | 'void '
 pType :: Parser Type
 pType = do {
-  t <- reserved "int" <|> reserved "double" <|> reserved "void";
+  t <- reserved "int" <|> reserved "double" <|> reserved "void" <|> reserved "string";
   return (case t of
     "int" -> LLVM.i32
     "double" -> LLVM.double
+    "string" -> LLVM.ptr LLVM.i8
     "void" -> LLVM.void)
 }
 
@@ -134,11 +137,18 @@ pExpressions = do { --pForExpr <|> pIfExpr <|> pWhileExpr <|> do {
 
 --- expression <- unary (# binop ( unary | expression ) ) *
 pExpression :: Parser Expr
-pExpression = pChain pTerm pBinOpLow pTerm
+pExpression = pConstStr <|> pChain pTerm pBinOpLow pTerm
+
+pConstStr :: Parser Expr
+pConstStr = do {
+  reserved "\"";
+  str <- many $ notChar '\"';
+  reserved "\"";
+  return $ Decl (Str str) Nothing;
+}
 
 pTerm :: Parser Expr
 pTerm = pChain pUnary pBinOpHigh (pUnary <|> pExpression)
-
 
 -- call_expr <- '(' ( expression (',' expression ) *) ? ')'
 pCallExpr :: Parser [Expr]
@@ -212,6 +222,21 @@ pLiteral :: Parser Expr
 pLiteral = do {
   f <- pDecimalConst <|> pDoubleConst;
   return $ Decl (Int $ round f) Nothing;
+  -- return $ Decl (Double f) Nothing;
+}
+
+-- BONUS: extern C calls
+pExtern :: Parser Expr
+pExtern = do {
+  reserved "using";
+  name <- pIdentifier;
+  reserved "(";
+  argsType <- many pType;
+  reserved ")";
+  reserved ":";
+  ret <- pType;
+  reserved ";";
+  return $ Extern name argsType ret
 }
 
 pChain :: Parser Expr -> Parser (Expr -> Expr -> Expr) -> Parser Expr -> Parser Expr

@@ -1,8 +1,8 @@
 module Main (main, test) where
 
-import System.IO
-import System.Environment
-import System.Exit
+import           System.IO
+import           System.Environment
+import           System.Exit
 import           System.Command
 
 import qualified Syntax
@@ -18,11 +18,15 @@ runInterpreter mod = do
   input <- getLine
   case Syntax.parse input of
     Left ((i, j), err) -> putStrLn err
-    -- Right exprs -> trace (show exprs) $ do
-    Right exprs -> do
+    Right exprs -> trace (show exprs) $ do
+    -- Right exprs -> do
       Compiler.jit $ previousFuncs ++ exprs
       runInterpreter $ previousFuncs ++ exprs
-  where previousFuncs = [f | f@(Syntax.Function {}) <- mod]
+  where
+    previousFuncs = [f | f <- mod, isPersistent f]
+    isPersistent (Syntax.Function {}) = True
+    isPersistent (Syntax.Extern {}) = True
+    isPersistent _ = False
 
 start :: [String] -> IO ()
 start [] = runInterpreter []
