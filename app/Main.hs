@@ -1,5 +1,6 @@
 module Main (main, test) where
 
+import System.IO
 import System.Environment
 import System.Exit
 import           System.Command
@@ -10,17 +11,21 @@ import qualified LLVM.Module
 
 import Debug.Trace
 
-runInterpreter :: IO ()
-runInterpreter = do
+runInterpreter :: [Syntax.Expr] -> IO ()
+runInterpreter mod = do
+  putStr "> "
+  hFlush stdout
   input <- getLine
   case Syntax.parse input of
     Left ((i, j), err) -> putStrLn err
-    Right exprs -> trace (show exprs) $ do
-      Compiler.jit $ exprs
-      runInterpreter
+    -- Right exprs -> trace (show exprs) $ do
+    Right exprs -> do
+      Compiler.jit $ previousFuncs ++ exprs
+      runInterpreter $ previousFuncs ++ exprs
+  where previousFuncs = [f | f@(Syntax.Function {}) <- mod]
 
 start :: [String] -> IO ()
-start [] = runInterpreter
+start [] = runInterpreter []
 start args = Compiler.runCompiler $ head args
 
 main :: IO ()

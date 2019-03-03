@@ -25,7 +25,7 @@ import Debug.Trace
 import           Codegen
 import qualified Syntax
 
-foreign import ccall "dynamic" haskFun :: FunPtr (IO Double) -> (IO Double)
+foreign import ccall "dynamic" haskFun :: FunPtr (IO Int) -> (IO Int)
 
 compiler = "llc"
 linker = "gcc"
@@ -46,7 +46,7 @@ compile :: [Syntax.Expr] -> IO String
 compile expr = withContext $ \context ->
   withModuleFromAST context (preprocess expr) $ \compiledModule ->
     withPassManager optimizationPasses $ \pm -> do
-      -- runPassManager pm compiledModule
+      runPassManager pm compiledModule
       asm <- moduleLLVMAssembly compiledModule
       return $ BS.unpack asm
 
@@ -56,9 +56,9 @@ jit expr = withContext $ \context ->
     withModuleFromAST context (preprocess expr) $ \compiledModule ->
       withPassManager optimizationPasses $ \pm -> do
         -- runPassManager pm compiledModule
-        asm <- moduleLLVMAssembly compiledModule
-        putStrLn $ BS.unpack asm
-        putStrLn "==================="
+        -- asm <- moduleLLVMAssembly compiledModule
+        -- putStrLn $ BS.unpack asm
+        -- putStrLn "==================="
         EE.withModuleInEngine executionEngine compiledModule $ \ee -> do
           mainfn <- EE.getFunction ee (AST.Name "main")
           case mainfn of
@@ -67,7 +67,7 @@ jit expr = withContext $ \context ->
               putStrLn $ show res
             Nothing -> return ()
         return ()
-  where runCEntrypoint fn = haskFun (castFunPtr fn :: FunPtr (IO Double))
+  where runCEntrypoint fn = haskFun (castFunPtr fn :: FunPtr (IO Int))
 
 runCompiler :: String -> IO ()
 runCompiler filename = do

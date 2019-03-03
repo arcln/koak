@@ -21,7 +21,7 @@ import qualified LLVM.AST.FloatingPointPredicate as FPP
 import qualified Syntax
 
 data CodegenState = CodegenState
-  { symtab :: [(Syntax.Name, AST.Operand)]
+  { symtab :: [AST.Operand]
   }
 
 align = 8
@@ -42,9 +42,9 @@ longv v = op $ C.Int 64 v
 doublev v = op $ C.Float (F.Double v)
 
 binops = Map.fromList
-  [ (Syntax.Plus, fadd)
+  [ (Syntax.Plus, add)
   , (Syntax.Minus, fsub)
-  , (Syntax.Times, fmul)
+  , (Syntax.Times, mul)
   , (Syntax.Divide, fdiv)
   , (Syntax.Eq, fcmp FPP.OEQ)
   , (Syntax.NotEq, fcmp FPP.ONE)
@@ -52,29 +52,31 @@ binops = Map.fromList
 
 op = AST.ConstantOperand
 ref t n = op $ C.GlobalReference t n
+local t n = AST.LocalReference t (AST.Name n)
 
 codegen :: Syntax.Expr -> CodegenState -> IRBuilderT ModuleBuilder AST.Operand
-codegen (Syntax.Float v) _ = pure $ doublev v
-codegen (Syntax.If cond thenb elseb) s = mdo
-  condv <- codegen cond s
-  condBr condv "then" "else"
-  block `named` "then"; do
-    out <- codegen thenb s
-    br end
-  block `named` "else"; do
-    out <- codegen elseb s
-    br end
-  end <- block `named` "end"
-  return $ doublev 42
-codegen (Syntax.Var v) s = case find (\sym -> fst sym == v) (symtab s) of
-  Just x -> pure $ snd x
-  -- Nothing -> error $ "no such symbol: " ++ (show v)
-  Nothing -> pure $ doublev 42
+codegen (Syntax.Decl (Syntax.Double v) _) _ = pure $ doublev v
+codegen (Syntax.Decl (Syntax.Int v) _) _ = pure $ intv v
+-- codegen (Syntax.If cond thenb elseb) s = mdo
+--   condv <- codegen cond s
+--   condBr condv "then" "else"
+--   block `named` "then"; do
+--     out <- codegen thenb s
+--     br end
+--   block `named` "else"; do
+--     out <- codegen elseb s
+--     br end
+--   end <- block `named` "end"
+--   return $ doublev 42
+codegen (Syntax.Var v) _ = pure $ local int v
+-- codegen (Syntax.Var v) s = case find (\sym -> name sym == v) (symtab s) of
+--   Just x -> pure $ snd x
+--   Nothing -> error $ "no such symbol: " ++ (show v)
 codegen (Syntax.Call fname fargs) s = do
   args <- mapM (\a -> do
     arg <- codegen a s
     return (arg, [])) fargs
-  call (ref (funptr Types.double [Types.double | _ <- [1..(length fargs)]]) (AST.Name fname)) []
+  call (ref (funptr int [int | _ <- [1..(length fargs)]]) (AST.Name fname)) args
 codegen (Syntax.BinOp op lhs rhs) s = case Map.lookup op binops of
   Just fn -> do
     lhs' <- codegen lhs s
@@ -82,31 +84,21 @@ codegen (Syntax.BinOp op lhs rhs) s = case Map.lookup op binops of
     fn lhs' rhs'
   Nothing -> error $ "no such operator: " ++ (show op)
 
-buildArg :: Syntax.Expr -> IRBuilderT ModuleBuilder (Syntax.Name, AST.Operand)
-buildArg (Syntax.Var name) = do
-  var <- alloca Types.double Nothing align
-  return (name, var)
-
-buildFunction :: Syntax.Name -> [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder AST.Operand
-buildFunction name args body = function (AST.Name name) args' Types.double bodyBuilder
+buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> [Syntax.Expr] -> ModuleBuilder AST.Operand
+buildFunction name args retType body = function (AST.Name name) args' retType bodyBuilder
   where
-    args' = map (\(Syntax.Var a) -> (Types.double, LLVM.IRBuilder.ParameterName a)) args
-    stackArgs = map buildArg args
-
-    bodyBuilder :: [AST.Operand] -> IRBuilderT ModuleBuilder ()
-    bodyBuilder [] = mdo
-      stackArgs' <- sequence stackArgs
+    args' = map (\(Syntax.Arg n t) -> (t, LLVM.IRBuilder.ParameterName n)) args
+    bodyBuilder args = mdo
       entry <- block `named` "entry"
-      bodyOps <- sequence $ map (\e -> (codegen e $ CodegenState stackArgs')) body
+      bodyOps <- sequence $ map (\e -> (codegen e $ CodegenState args)) body
       ret $ last bodyOps
-      return ()
 
 startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()
 startCodegen [] []      = return ()
 startCodegen [] mainEs  = do
-  buildFunction "main" [] $ reverse mainEs
+  buildFunction "main" [] int $ reverse mainEs
   return ()
-startCodegen (Syntax.Function name args body:es) mainEs = do
-  buildFunction name args [body]
+startCodegen (Syntax.Function name args retType body:es) mainEs = do
+  buildFunction name args retType [body]
   startCodegen es mainEs
 startCodegen (expr:es) mainEs = startCodegen es (expr:mainEs)
