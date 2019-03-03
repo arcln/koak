@@ -2,6 +2,8 @@ module Syntax
     ( Name
     , Expr (..)
     , Op (..)
+    , Type (..)
+    , Value (..)
     , Syntax.parse
     ) where
 
@@ -11,36 +13,40 @@ import Control.Applicative
 import Data.String.Encode
 import Data.ByteString.Short
 import Debug.Trace
-
 import Persa.Parser
+
+import Data.ByteString.Char8 as BS
+import LLVM.AST.Type         as LLVM
 
 type Name = ShortByteString
 
 data Expr
-    = Float Double
+    = Decl Value (Maybe Name)
     | BinOp Op Expr Expr
     | UnOp Op Expr
     | Var Name
     | Call Name [Expr]
-    | Function Name [Expr] Expr
+    | Function Name [Expr] Type Expr
     | Extern Name [Expr]
     | Arg Name Type
     | Block [Expr]
+    | If Expr Expr Expr
+    -- | For Name Expr Expr Expr Expr
     deriving (Eq, Ord, Show)
 
 data Op
     = Plus
-    | Substract
+    | Minus
     | Times
     | Divide
     | Not
-    | Minus
+    | Eq
+    | NotEq
     deriving (Eq, Ord, Show)
 
-data Type
-    = Int
-    | Double
-    | Void
+data Value
+    = Int Integer
+    | Double Double
     deriving (Eq, Ord, Show)
 
 --- for_expr       <- 'for ' identifier '=' expression ',' identifier '<' expression ',' expression 'in ' expressions
@@ -71,9 +77,9 @@ pKdefs = do {
 -- defs <- prototype expressions
 pDefs :: Parser Expr
 pDefs = do {
-  (id, (args, _)) <- pPrototype;
+  (id, (args, ret)) <- pPrototype;
   exprs <- pExpressions;
-  return $ Function id args exprs
+  return $ Function id args ret exprs
 }
 
 -- prototype <- ('unary ' . decimal_const ? | 'binary ' . decimal_const ? | identifier) prototype_args
@@ -108,9 +114,9 @@ pType :: Parser Type
 pType = do {
   t <- reserved "int" <|> reserved "double" <|> reserved "void";
   return (case t of
-    "int" -> Int
-    "double" -> Double
-    "void" -> Void)
+    "int" -> LLVM.i32
+    "double" -> LLVM.double
+    "void" -> LLVM.void)
 }
 
 -- expressions <- for_expr | if_expr | while_expr | expression (':' expression ) *
@@ -205,7 +211,7 @@ pDoubleConst = fractional
 pLiteral :: Parser Expr
 pLiteral = do {
   f <- pDecimalConst <|> pDoubleConst;
-  return $ Float f;
+  return $ Decl (Int $ round f) Nothing;
 }
 
 pChain :: Parser Expr -> Parser (Expr -> Expr -> Expr) -> Parser Expr -> Parser Expr
@@ -221,7 +227,7 @@ pOperator :: String -> a -> Parser a
 pOperator c op = reserved c >> return op
 
 pBinOpLow :: Parser (Expr -> Expr -> Expr)
-pBinOpLow = pOperator "+" (BinOp Plus) <|> pOperator "-" (BinOp Substract)
+pBinOpLow = pOperator "+" (BinOp Plus) <|> pOperator "-" (BinOp Minus)
 
 pBinOpHigh :: Parser (Expr -> Expr -> Expr)
 pBinOpHigh = pOperator "*" (BinOp Times) <|> pOperator "/" (BinOp Divide)
