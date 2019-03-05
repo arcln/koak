@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Codegen (startCodegen) where
+module Codegen (startCodegen, toBS) where
 
 import           Control.Monad.State
 import           Data.List
@@ -70,20 +70,22 @@ codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
 codegen (Syntax.Decl (Syntax.Int v) _) = pure $ intv v
 codegen (Syntax.Decl (Syntax.Str s) _) = globalStringPtr s =<< fresh
+codegen (Syntax.Var v) = pure $ local int v
 codegen (Syntax.If cond thenb elseb) = mdo
   tname <- fresh
   fname <- fresh
   ename <- fresh
 
-  condv <- codegen cond
+  let condm = codegen cond
+  condv <- condm
   condBr condv tname fname
 
   emitBlockStart tname
-  tout <- codegen thenb
+  tout <- foldl (\_ e -> codegen e) condm thenb
   br end
 
   emitBlockStart fname
-  fout <- codegen elseb
+  fout <- foldl (\_ e -> codegen e) condm elseb
   br end
 
   end <- block `named` (toBS ename)
@@ -96,16 +98,17 @@ codegen (Syntax.While cond b) = mdo
   
   br start
   start <- block `named` (toBS sname)
-  condv <- codegen cond
+  let condm = codegen cond
+  condv <- condm
   condBr condv bname ename
 
   emitBlockStart bname
-  out <- codegen b
+  out <- foldl (\_ e -> codegen e) condm b
   br start
 
   emitBlockStart ename
   return out
-codegen (Syntax.Var v) = pure $ local int v
+codegen (Syntax.For name cond inc body) = codegen $ Syntax.While cond (body ++ [inc])
 codegen (Syntax.Call fname fargs) = do
   -- operand <- gets (\x -> x)
   -- case operand of

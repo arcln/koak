@@ -29,9 +29,9 @@ data Expr
     | Extern Name [Type] Type
     | Arg Name Type
     | Block [Expr]
-    | If Expr Expr Expr
-    | While Expr Expr
-    -- | For Name Expr Expr Expr Expr
+    | If Expr [Expr] [Expr]
+    | While Expr [Expr]
+    | For Name Expr Expr [Expr]
     deriving (Eq, Ord, Show)
 
 data Op
