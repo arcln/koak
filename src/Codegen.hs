@@ -69,7 +69,12 @@ toBS (AST.UnName n) = BS.toShort $ C8.pack $ drop 1 $ show n
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
 codegen (Syntax.Decl (Syntax.Int v) _) = pure $ intv v
-codegen (Syntax.Decl (Syntax.Str s) _) = globalStringPtr s =<< fresh
+codegen (Syntax.Decl (Syntax.Str s) _) = do
+  name <- fresh
+  globalStringPtr s name
+  let str = ref (ptr (ArrayType 4 char)) name
+  ptr <- bitcast str charptr
+  return ptr
 codegen (Syntax.Var v) = pure $ local int v
 codegen (Syntax.If cond thenb elseb) = mdo
   tname <- fresh
