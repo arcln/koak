@@ -70,37 +70,22 @@ toBS :: AST.Name -> BS.ShortByteString
 toBS (AST.Name n) = n
 toBS (AST.UnName n) = BS.toShort $ C8.pack $ drop 1 $ show n
 
--- getFuncDefByName :: ModuleBuilderState -> AST.Name -> Maybe AST.Function
+getFuncDefByName :: ModuleBuilderState -> AST.Name -> Maybe AST.Definition
 getFuncDefByName (ModuleBuilderState builderDefs _) name = find byName (getSnocList builderDefs)
   where
     byName (AST.GlobalDefinition (AST.Function _ _ _ _ _ _ typeName _ _ _ _ _ _ _ _ _ _)) = typeName == name
     byName _ = False
 
--- getFuncType :: AST.Function -> AST.Type
+getFuncType :: AST.Definition -> AST.Type
 getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, _) _ _ _ _ _ _ _ _ _)) = getFuncPtr $ AST.FunctionType funcType paramsTypes False
   where
     paramsTypes = map (\(AST.Parameter t _ _) -> t) params
-
-
-getFuncPtr fn = PointerType (fn) (A.AddrSpace 0)
+    getFuncPtr fn = PointerType (fn) (A.AddrSpace 0)
 
 getTypeByName :: ModuleBuilderState -> AST.Name -> Maybe AST.Type
 getTypeByName mbs name = case getFuncDefByName mbs name of
   Just func -> Just $ getFuncType func
   Nothing   -> Nothing
-
-
--- getType (Just (AST.TypeDefinition _ mt)) = mt
---     getType _ = Nothing
---     byName (AST.TypeDefinition typeName (Just _)) = typeName == name
---     byName _ = False
-
-
--- getTypeByName (ModuleBuilderState _ typeDefs) name = Map.lookup name typeDefs
-
-
--- getTypeByName :: IRBuilderT ModuleBuilder AST.Operand -> ModuleBuilderState
--- getTypeByName _ = liftModuleState $ get
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
@@ -136,7 +121,7 @@ codegen (Syntax.While cond b) = mdo
   sname <- fresh
   bname <- fresh
   ename <- fresh
-  
+
   br start
   start <- block `named` (toBS sname)
   let condm = codegen cond
