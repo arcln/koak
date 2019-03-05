@@ -6,6 +6,8 @@ module Codegen (startCodegen) where
 
 import           Control.Monad.State
 import           Data.List
+import qualified Data.ByteString.Char8           as C8
+import qualified Data.ByteString.Short           as BS
 import qualified Data.Map                        as Map
 
 import           LLVM
@@ -60,22 +62,49 @@ op = AST.ConstantOperand
 ref t n = op $ C.GlobalReference t n
 local t n = AST.LocalReference t (AST.Name n)
 
+toBS :: AST.Name -> BS.ShortByteString
+toBS (AST.Name n) = n
+toBS (AST.UnName n) = BS.toShort $ C8.pack $ drop 1 $ show n
+
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
 codegen (Syntax.Decl (Syntax.Int v) _) = pure $ intv v
 codegen (Syntax.Decl (Syntax.Str s) _) = globalStringPtr s =<< fresh
 codegen (Syntax.If cond thenb elseb) = mdo
+  tname <- fresh
+  fname <- fresh
+  ename <- fresh
+
   condv <- codegen cond
-  condBr condv "then" "else"
-  emitBlockStart "then"
+  condBr condv tname fname
+
+  emitBlockStart tname
   tout <- codegen thenb
   br end
-  emitBlockStart "else"
-  eout <- codegen elseb
+
+  emitBlockStart fname
+  fout <- codegen elseb
   br end
-  end <- block `named` "end"
-  node <- phi [(tout, "then"), (eout, "else")]
+
+  end <- block `named` (toBS ename)
+  node <- phi [(tout, tname), (fout, fname)]
   return node
+codegen (Syntax.While cond b) = mdo
+  sname <- fresh
+  bname <- fresh
+  ename <- fresh
+  
+  br start
+  start <- block `named` (toBS sname)
+  condv <- codegen cond
+  condBr condv bname ename
+
+  emitBlockStart bname
+  out <- codegen b
+  br start
+
+  emitBlockStart ename
+  return out
 codegen (Syntax.Var v) = pure $ local int v
 codegen (Syntax.Call fname fargs) = do
   -- operand <- gets (\x -> x)
@@ -94,14 +123,17 @@ codegen (Syntax.BinOp op lhs rhs) = case Map.lookup op binops of
   Nothing -> error $ "no such operator: " ++ (show op)
 
 buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> [Syntax.Expr] -> ModuleBuilder AST.Operand
-buildFunction name args retType body = function' (AST.Name name) args' retType bodyBuilder
+buildFunction name args retType body = function' (AST.Name name) args' retType (bodyBuilder body)
   where
     args' = map arg args
     arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
     -- arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
-    bodyBuilder args = mdo
+    -- bodyBuilder b@(Syntax.While {}:es) args = bodyBuilderWithoutEntry args b
+    bodyBuilder b args = mdo
       entry <- block `named` "entry"
-      bodyOps <- sequence $ map (\e -> codegen e) body
+    --   bodyBuilderWithoutEntry args b
+    -- bodyBuilderWithoutEntry args b = mdo
+      bodyOps <- sequence $ map (\e -> codegen e) b
       ret $ last bodyOps
 
 startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()

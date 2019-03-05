@@ -30,6 +30,7 @@ data Expr
     | Arg Name Type
     | Block [Expr]
     | If Expr Expr Expr
+    | While Expr Expr
     -- | For Name Expr Expr Expr Expr
     deriving (Eq, Ord, Show)
 
