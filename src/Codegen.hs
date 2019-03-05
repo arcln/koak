@@ -64,16 +64,18 @@ codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
 codegen (Syntax.Decl (Syntax.Int v) _) = pure $ intv v
 codegen (Syntax.Decl (Syntax.Str s) _) = globalStringPtr s =<< fresh
--- codegen (Syntax.If cond thenb elseb) = mdo
---   condv <- codegen cond
---   condBr condv "then" "else"
---   tout <- block `named` "then"; do
---     out <- codegen thenb
---     return out
---   eout <- block `named` "else"; do
---     out <- codegen elseb
---     return out
---   return tout
+codegen (Syntax.If cond thenb elseb) = mdo
+  condv <- codegen cond
+  condBr condv "then" "else"
+  emitBlockStart "then"
+  tout <- codegen thenb
+  br end
+  emitBlockStart "else"
+  eout <- codegen elseb
+  br end
+  end <- block `named` "end"
+  node <- phi [(tout, "then"), (eout, "else")]
+  return node
 codegen (Syntax.Var v) = pure $ local int v
 codegen (Syntax.Call fname fargs) = do
   -- operand <- gets (\x -> x)
