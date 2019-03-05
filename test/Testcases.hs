@@ -1,14 +1,17 @@
 module Testcases where
 
 import Data.String
+import LLVM.AST.Type         as LLVM
 
 import Syntax
 
-float42' = Float 42
-float42 = [Float 42]
-floatsEndingWith42 = [Float 0, Float 42]
+doubleDecl x = Decl (Double x) Nothing
 
-functionWithNoArgument' name = Function name' [] $ float42'
+double42'           = doubleDecl 42
+double42            = [double42']
+floatsEndingWith42  = [doubleDecl 0, double42']
+
+functionWithNoArgument' name = Function name' [] LLVM.double double42'
   where name' = fromString name :: Name
 
 functionWithNoArgument = [functionWithNoArgument' "noArguments"]
@@ -19,9 +22,9 @@ functionCallWithNoArgument =
   ]
   where calleeName = "test"
 
-functionCallWithFloatArgument =
-  [ Function calleeName [arg] $ arg
-  , Call calleeName float42
+functionCallWithDoubleArgument =
+  [ Function calleeName [arg] LLVM.double arg
+  , Call calleeName double42
   ]
   where
     arg         = Var (fromString "arg" :: Name)

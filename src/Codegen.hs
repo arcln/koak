@@ -25,12 +25,7 @@ import qualified LLVM.AST.IntegerPredicate       as IP
 import qualified LLVM.AST.AddrSpace              as A
 import           LLVM.IRBuilder.Internal.SnocList
 
--- import Data.ByteString.Char8 as B
--- import Data.ByteString.Short
-
 import qualified Syntax
--- import qualified AstSelector
-
 data CodegenState = CodegenState
   { symtab :: [AST.Operand]
   }
