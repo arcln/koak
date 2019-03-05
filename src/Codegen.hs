@@ -9,6 +9,7 @@ import           Data.List
 import qualified Data.ByteString.Char8           as C8
 import qualified Data.ByteString.Short           as BS
 import qualified Data.Map                        as Map
+import Data.Word
 
 import           LLVM
 import           LLVM.IRBuilder
@@ -21,12 +22,14 @@ import qualified LLVM.AST.Float                  as F
 import qualified LLVM.AST.Constant               as C
 import qualified LLVM.AST.FloatingPointPredicate as FPP
 import qualified LLVM.AST.IntegerPredicate       as IP
+import qualified LLVM.AST.AddrSpace              as A
+import           LLVM.IRBuilder.Internal.SnocList
 
 -- import Data.ByteString.Char8 as B
 -- import Data.ByteString.Short
 
 import qualified Syntax
-import qualified AstSelector
+-- import qualified AstSelector
 
 data CodegenState = CodegenState
   { symtab :: [AST.Operand]
@@ -61,10 +64,43 @@ binops = Map.fromList
 op = AST.ConstantOperand
 ref t n = op $ C.GlobalReference t n
 local t n = AST.LocalReference t (AST.Name n)
+get' = liftModuleState $ get
 
 toBS :: AST.Name -> BS.ShortByteString
 toBS (AST.Name n) = n
 toBS (AST.UnName n) = BS.toShort $ C8.pack $ drop 1 $ show n
+
+-- getFuncDefByName :: ModuleBuilderState -> AST.Name -> Maybe AST.Function
+getFuncDefByName (ModuleBuilderState builderDefs _) name = find byName (getSnocList builderDefs)
+  where
+    byName (AST.GlobalDefinition (AST.Function _ _ _ _ _ _ typeName _ _ _ _ _ _ _ _ _ _)) = typeName == name
+    byName _ = False
+
+-- getFuncType :: AST.Function -> AST.Type
+getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, _) _ _ _ _ _ _ _ _ _)) = getFuncPtr $ AST.FunctionType funcType paramsTypes False
+  where
+    paramsTypes = map (\(AST.Parameter t _ _) -> t) params
+
+
+getFuncPtr fn = PointerType (fn) (A.AddrSpace 0)
+
+getTypeByName :: ModuleBuilderState -> AST.Name -> Maybe AST.Type
+getTypeByName mbs name = case getFuncDefByName mbs name of
+  Just func -> Just $ getFuncType func
+  Nothing   -> Nothing
+
+
+-- getType (Just (AST.TypeDefinition _ mt)) = mt
+--     getType _ = Nothing
+--     byName (AST.TypeDefinition typeName (Just _)) = typeName == name
+--     byName _ = False
+
+
+-- getTypeByName (ModuleBuilderState _ typeDefs) name = Map.lookup name typeDefs
+
+
+-- getTypeByName :: IRBuilderT ModuleBuilder AST.Operand -> ModuleBuilderState
+-- getTypeByName _ = liftModuleState $ get
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
@@ -115,14 +151,13 @@ codegen (Syntax.While cond b) = mdo
   return out
 codegen (Syntax.For name cond inc body) = codegen $ Syntax.While cond (body ++ [inc])
 codegen (Syntax.Call fname fargs) = do
-  -- operand <- gets (\x -> x)
-  -- case operand of
-    -- (AST.LocalReference opType opName) -> do
   args <- mapM (\a -> do
     arg <- codegen a
     return (arg, [])) fargs
-  call (ref (funptr int [charptr]) (AST.Name fname)) args
-    -- _ ->
+  state <- get'
+  case (getTypeByName state (AST.Name fname)) of
+    Just funcType -> call (ref (funcType) (AST.Name fname)) args
+    Nothing       -> error $ "could not find type of function " ++ (show fname)
 codegen (Syntax.BinOp op lhs rhs) = case Map.lookup op binops of
   Just fn -> do
     lhs' <- codegen lhs
@@ -135,7 +170,7 @@ buildFunction name args retType body = function' (AST.Name name) args' retType (
   where
     args' = map arg args
     arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
-    -- arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
+    arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
     -- bodyBuilder b@(Syntax.While {}:es) args = bodyBuilderWithoutEntry args b
     bodyBuilder b args = mdo
       entry <- block `named` "entry"
