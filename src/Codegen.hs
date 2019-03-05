@@ -5,6 +5,7 @@
 module Codegen (startCodegen, toBS) where
 
 import           Control.Monad.State
+import           Data.Word
 import           Data.List
 import qualified Data.ByteString.Char8           as C8
 import qualified Data.ByteString.Short           as BS
@@ -26,9 +27,7 @@ import qualified LLVM.AST.AddrSpace              as A
 import           LLVM.IRBuilder.Internal.SnocList
 
 import qualified Syntax
-data CodegenState = CodegenState
-  { symtab :: [AST.Operand]
-  }
+import qualified AstSelector
 
 align = 8
 
@@ -39,7 +38,7 @@ long = i64
 charptr = ptr i8
 intptr = ptr i32
 longptr = ptr i64
-funptr ret args = ptr $ FunctionType ret args False
+funptr ret args = ptr $ FunctionType ret args True
 
 boolv v = op $ C.Int 1 v
 charv v = op $ C.Int 8 v
@@ -88,7 +87,7 @@ codegen (Syntax.Decl (Syntax.Int v) _) = pure $ intv v
 codegen (Syntax.Decl (Syntax.Str s) _) = do
   name <- fresh
   globalStringPtr s name
-  let str = ref (ptr (ArrayType 4 char)) name
+  let str = ref (ptr (ArrayType (fromIntegral $ length s + 1) char)) name
   ptr <- bitcast str charptr
   return ptr
 codegen (Syntax.Var v) = pure $ local int v
@@ -150,7 +149,7 @@ buildFunction name args retType body = function' (AST.Name name) args' retType (
   where
     args' = map arg args
     arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
-    arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
+    -- arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
     -- bodyBuilder b@(Syntax.While {}:es) args = bodyBuilderWithoutEntry args b
     bodyBuilder b args = mdo
       entry <- block `named` "entry"
@@ -167,7 +166,10 @@ startCodegen [] mainEs = do
 startCodegen (Syntax.Function name args retType body:es) mainEs = do
   buildFunction name args retType [body]
   startCodegen es mainEs
-startCodegen (Syntax.Extern name argsType retType:es) mainEs = do
+startCodegen (Syntax.Extern name argsType retType True:es) mainEs = do
+  externVarArgs (AST.Name name) argsType retType
+  startCodegen es mainEs
+startCodegen (Syntax.Extern name argsType retType False:es) mainEs = do
   extern' (AST.Name name) argsType retType
   startCodegen es mainEs
 startCodegen (expr:es) mainEs = startCodegen es (expr:mainEs)
