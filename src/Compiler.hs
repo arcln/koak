@@ -56,9 +56,9 @@ jit expr = withContext $ \context ->
     withModuleFromAST context (preprocess expr) $ \compiledModule ->
       withPassManager optimizationPasses $ \pm -> do
         -- runPassManager pm compiledModule
-        -- asm <- moduleLLVMAssembly compiledModule
-        -- putStrLn $ BS.unpack asm
-        -- putStrLn "==================="
+        asm <- moduleLLVMAssembly compiledModule
+        putStrLn $ BS.unpack asm
+        putStrLn "==================="
         EE.withModuleInEngine executionEngine compiledModule $ \ee -> do
           mainfn <- EE.getFunction ee (AST.Name "main")
           case mainfn of
@@ -76,7 +76,7 @@ runCompiler filename = do
     Left ((i, j), err) -> putStrLn $ "error: " ++ show err
     Right exprs -> trace ("exprs:" ++ show exprs) $ do
       asm <- Compiler.compile $ exprs
-      writeFile "__tmp__.ll" asm
-      command_ [] compiler ["__tmp__.ll"]
-      command_ [] linker ["__tmp__.s"]
-      -- command_ [] "rm" ["__tmp__.ll", "__tmp__.s"]
+      writeFile (filename ++ ".ll") asm
+      command_ [] compiler [filename ++ ".ll"]
+      command_ [] linker [filename ++ ".s"]
+      -- command_ [] "rm" [filename ++ ".ll", filename ++ ".s"]

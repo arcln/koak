@@ -2,23 +2,31 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Codegen (startCodegen) where
+module Codegen (startCodegen, toBS) where
 
 import           Control.Monad.State
 import           Data.List
+import qualified Data.ByteString.Char8           as C8
+import qualified Data.ByteString.Short           as BS
 import qualified Data.Map                        as Map
 
+import           LLVM
 import           LLVM.IRBuilder
+import           LLVM.AST.Linkage
+import           LLVM.AST.Global
+import           LLVM.AST.ParameterAttribute
 import           LLVM.AST.Type                   as Types
 import qualified LLVM.AST                        as AST
 import qualified LLVM.AST.Float                  as F
 import qualified LLVM.AST.Constant               as C
 import qualified LLVM.AST.FloatingPointPredicate as FPP
+import qualified LLVM.AST.IntegerPredicate       as IP
 
 -- import Data.ByteString.Char8 as B
 -- import Data.ByteString.Short
 
 import qualified Syntax
+import qualified AstSelector
 
 data CodegenState = CodegenState
   { symtab :: [AST.Operand]
@@ -46,59 +54,105 @@ binops = Map.fromList
   , (Syntax.Minus, fsub)
   , (Syntax.Times, mul)
   , (Syntax.Divide, fdiv)
-  , (Syntax.Eq, fcmp FPP.OEQ)
-  , (Syntax.NotEq, fcmp FPP.ONE)
+  , (Syntax.Eq, icmp IP.EQ)
+  , (Syntax.NotEq, icmp IP.NE)
   ]
 
 op = AST.ConstantOperand
 ref t n = op $ C.GlobalReference t n
 local t n = AST.LocalReference t (AST.Name n)
 
-codegen :: Syntax.Expr -> CodegenState -> IRBuilderT ModuleBuilder AST.Operand
-codegen (Syntax.Decl (Syntax.Double v) _) _ = pure $ doublev v
-codegen (Syntax.Decl (Syntax.Int v) _) _ = pure $ intv v
--- codegen (Syntax.If cond thenb elseb) s = mdo
---   condv <- codegen cond s
---   condBr condv "then" "else"
---   block `named` "then"; do
---     out <- codegen thenb s
---     br end
---   block `named` "else"; do
---     out <- codegen elseb s
---     br end
---   end <- block `named` "end"
---   return $ doublev 42
-codegen (Syntax.Var v) _ = pure $ local int v
--- codegen (Syntax.Var v) s = case find (\sym -> name sym == v) (symtab s) of
---   Just x -> pure $ snd x
---   Nothing -> error $ "no such symbol: " ++ (show v)
-codegen (Syntax.Call fname fargs) s = do
+toBS :: AST.Name -> BS.ShortByteString
+toBS (AST.Name n) = n
+toBS (AST.UnName n) = BS.toShort $ C8.pack $ drop 1 $ show n
+
+codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
+codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
+codegen (Syntax.Decl (Syntax.Int v) _) = pure $ intv v
+codegen (Syntax.Decl (Syntax.Str s) _) = do
+  name <- fresh
+  globalStringPtr s name
+  let str = ref (ptr (ArrayType 4 char)) name
+  ptr <- bitcast str charptr
+  return ptr
+codegen (Syntax.Var v) = pure $ local int v
+codegen (Syntax.If cond thenb elseb) = mdo
+  tname <- fresh
+  fname <- fresh
+  ename <- fresh
+
+  let condm = codegen cond
+  condv <- condm
+  condBr condv tname fname
+
+  emitBlockStart tname
+  tout <- foldl (\_ e -> codegen e) condm thenb
+  br end
+
+  emitBlockStart fname
+  fout <- foldl (\_ e -> codegen e) condm elseb
+  br end
+
+  end <- block `named` (toBS ename)
+  node <- phi [(tout, tname), (fout, fname)]
+  return node
+codegen (Syntax.While cond b) = mdo
+  sname <- fresh
+  bname <- fresh
+  ename <- fresh
+  
+  br start
+  start <- block `named` (toBS sname)
+  let condm = codegen cond
+  condv <- condm
+  condBr condv bname ename
+
+  emitBlockStart bname
+  out <- foldl (\_ e -> codegen e) condm b
+  br start
+
+  emitBlockStart ename
+  return out
+codegen (Syntax.For name cond inc body) = codegen $ Syntax.While cond (body ++ [inc])
+codegen (Syntax.Call fname fargs) = do
+  -- operand <- gets (\x -> x)
+  -- case operand of
+    -- (AST.LocalReference opType opName) -> do
   args <- mapM (\a -> do
-    arg <- codegen a s
+    arg <- codegen a
     return (arg, [])) fargs
-  call (ref (funptr int [int | _ <- [1..(length fargs)]]) (AST.Name fname)) args
-codegen (Syntax.BinOp op lhs rhs) s = case Map.lookup op binops of
+  call (ref (funptr int [charptr]) (AST.Name fname)) args
+    -- _ ->
+codegen (Syntax.BinOp op lhs rhs) = case Map.lookup op binops of
   Just fn -> do
-    lhs' <- codegen lhs s
-    rhs' <- codegen rhs s
+    lhs' <- codegen lhs
+    rhs' <- codegen rhs
     fn lhs' rhs'
   Nothing -> error $ "no such operator: " ++ (show op)
 
 buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> [Syntax.Expr] -> ModuleBuilder AST.Operand
-buildFunction name args retType body = function (AST.Name name) args' retType bodyBuilder
+buildFunction name args retType body = function' (AST.Name name) args' retType (bodyBuilder body)
   where
-    args' = map (\(Syntax.Arg n t) -> (t, LLVM.IRBuilder.ParameterName n)) args
-    bodyBuilder args = mdo
+    args' = map arg args
+    arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
+    -- arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
+    -- bodyBuilder b@(Syntax.While {}:es) args = bodyBuilderWithoutEntry args b
+    bodyBuilder b args = mdo
       entry <- block `named` "entry"
-      bodyOps <- sequence $ map (\e -> (codegen e $ CodegenState args)) body
+    --   bodyBuilderWithoutEntry args b
+    -- bodyBuilderWithoutEntry args b = mdo
+      bodyOps <- sequence $ map (\e -> codegen e) b
       ret $ last bodyOps
 
 startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()
-startCodegen [] []      = return ()
-startCodegen [] mainEs  = do
+startCodegen [] []     = return ()
+startCodegen [] mainEs = do
   buildFunction "main" [] int $ reverse mainEs
   return ()
 startCodegen (Syntax.Function name args retType body:es) mainEs = do
   buildFunction name args retType [body]
+  startCodegen es mainEs
+startCodegen (Syntax.Extern name argsType retType:es) mainEs = do
+  extern' (AST.Name name) argsType retType
   startCodegen es mainEs
 startCodegen (expr:es) mainEs = startCodegen es (expr:mainEs)
