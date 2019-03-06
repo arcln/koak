@@ -20,7 +20,8 @@ import LLVM.AST.Type         as LLVM
 type Name = ShortByteString
 
 data Expr
-    = Decl Value (Maybe Name)
+    = Decl Type Name Expr
+    | Data Value
     | BinOp Op Expr Expr
     | UnOp Op Expr
     | Var Name
@@ -172,16 +173,25 @@ pWhileExpr = do {
   return $ While c e;
 }
 
---- expression <- unary (# binop ( unary | expression ) ) *
+-- expression <- var_decl | const_str | unary (# binop ( unary | expression ) ) *
 pExpression :: Parser Expr
-pExpression = pConstStr <|> pChain pTerm pBinOpLow pTerm
+pExpression = pVarDecl <|> pConstStr <|> pChain pTerm pBinOpLow pTerm
+
+pVarDecl :: Parser Expr
+pVarDecl = do {
+  t <- pType;
+  i <- pIdentifier;
+  reserved "=";
+  e <- pExpression;
+  return $ Decl t i e;
+}
 
 pConstStr :: Parser Expr
 pConstStr = do {
   reserved "\"";
   str <- many $ notChar '\"';
   reserved "\"";
-  return $ Decl (Str str) Nothing;
+  return $ Data (Str str);
 }
 
 pTerm :: Parser Expr
@@ -262,8 +272,8 @@ pLiteral :: Parser Expr
 pLiteral = do {
   (t, n) <- pDoubleConst <|> pDecimalConst;
   return $ case t of
-    "int" -> Decl (Int $ round n) Nothing
-    "double" -> Decl (Double n) Nothing
+    "int" -> Data (Int $ round n)
+    "double" -> Data (Double n)
 }
 
 -- BONUS: extern C calls

@@ -46,6 +46,7 @@ intv v = op $ C.Int 32 v
 longv v = op $ C.Int 64 v
 doublev v = op $ C.Float (F.Double v)
 
+binops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> AST.Operand -> m AST.Operand)
 binops = Map.fromList
   [ (Syntax.Plus, add)
   , (Syntax.Minus, fsub)
@@ -83,9 +84,9 @@ getTypeByName mbs name = case getFuncDefByName mbs name of
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Block b) = last $ map (\e -> codegen e) b
-codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
-codegen (Syntax.Decl (Syntax.Int v) _) = pure $ intv v
-codegen (Syntax.Decl (Syntax.Str s) _) = do
+codegen (Syntax.Data (Syntax.Double v)) = pure $ doublev v
+codegen (Syntax.Data (Syntax.Int v)) = pure $ intv v
+codegen (Syntax.Data (Syntax.Str s)) = do
   name <- fresh
   globalStringPtr s name
   let str = ref (ptr (ArrayType (fromIntegral $ length s + 1) char)) name
