@@ -46,7 +46,7 @@ compile :: [Syntax.Expr] -> IO String
 compile expr = withContext $ \context ->
   withModuleFromAST context (preprocess expr) $ \compiledModule ->
     withPassManager optimizationPasses $ \pm -> do
-      runPassManager pm compiledModule
+      -- runPassManager pm compiledModule
       asm <- moduleLLVMAssembly compiledModule
       return $ BS.unpack asm
 
