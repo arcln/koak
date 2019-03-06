@@ -42,6 +42,10 @@ data Op
     | Not
     | Eq
     | NotEq
+    | Gt
+    | Lt
+    | Gte
+    | Lte
     deriving (Eq, Ord, Show)
 
 data Value
@@ -299,7 +303,14 @@ pBinOpLow :: Parser (Expr -> Expr -> Expr)
 pBinOpLow = pOperator "+" (BinOp Plus) <|> pOperator "-" (BinOp Minus)
 
 pBinOpHigh :: Parser (Expr -> Expr -> Expr)
-pBinOpHigh = pOperator "*" (BinOp Times) <|> pOperator "/" (BinOp Divide)
+pBinOpHigh = pOperator "*" (BinOp Times) <|>
+  pOperator "/" (BinOp Divide) <|>
+  pOperator "==" (BinOp Eq) <|>
+  pOperator "!=" (BinOp NotEq) <|>
+  pOperator ">" (BinOp Gt) <|>
+  pOperator "<" (BinOp Lt) <|>
+  pOperator ">=" (BinOp Gte) <|>
+  pOperator "<=" (BinOp Lte)
 
 pUnOp :: Parser (Expr -> Expr)
 pUnOp = pOperator "!" (UnOp Not) <|> pOperator "-" (UnOp Minus)
