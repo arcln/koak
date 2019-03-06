@@ -27,7 +27,7 @@ import qualified LLVM.AST.AddrSpace              as A
 import           LLVM.IRBuilder.Internal.SnocList
 
 import qualified Syntax
-import qualified AstSelector
+-- import qualified AstSelector
 
 align = 8
 
