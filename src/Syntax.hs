@@ -208,22 +208,26 @@ pIdentifier = do {
 }
 
 -- decimal_const <- [0 -9]+
-pDecimalConst :: Parser Double
+pDecimalConst :: Parser (String, Double)
 pDecimalConst = do {
   n <- number;
-  return $ fromIntegral n;
+  return ("int", fromIntegral n);
 }
 
 -- double_const <- ( decimal_const dot [0 -9]* | dot [0 -9]+ )
-pDoubleConst :: Parser Double
-pDoubleConst = fractional
+pDoubleConst :: Parser (String, Double)
+pDoubleConst = do {
+  d <- Persa.Parser.double;
+  return ("double", d);
+}
 
 -- literal <- decimal_const | double_const
 pLiteral :: Parser Expr
 pLiteral = do {
-  f <- pDecimalConst <|> pDoubleConst;
-  return $ Decl (Int $ round f) Nothing;
-  -- return $ Decl (Double f) Nothing;
+  (t, n) <- pDoubleConst <|> pDecimalConst;
+  return $ case t of
+    "int" -> Decl (Int $ round n) Nothing
+    "double" -> Decl (Double n) Nothing
 }
 
 -- BONUS: extern C calls
