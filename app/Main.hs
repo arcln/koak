@@ -16,17 +16,22 @@ runInterpreter mod = do
   putStr "> "
   hFlush stdout
   input <- getLine
-  case Syntax.parse input of
+  let finput = if last input /= ';' then input ++ ";" else input
+  case Syntax.parse finput of
     Left ((i, j), err) -> putStrLn err
     -- Right exprs -> trace (show exprs) $ do
     Right exprs -> do
-      Compiler.jit $ previousFuncs ++ exprs
-      runInterpreter $ previousFuncs ++ exprs
+      Compiler.jit $ (previousFuncs mod) ++ exprs
+      runInterpreter $ (previousFuncs mod) ++ exprs
   where
-    previousFuncs = [f | f <- mod, isPersistent f]
+    previousFuncs b = [fn f | f <- b, isPersistent f]
     isPersistent (Syntax.Function {}) = True
     isPersistent (Syntax.Extern {}) = True
+    isPersistent (Syntax.Decl {}) = True
+    isPersistent (Syntax.Block {}) = True
     isPersistent _ = False
+    fn (Syntax.Block b) = Syntax.Block $ previousFuncs b
+    fn x = x
 
 start :: [String] -> IO ()
 start [] = runInterpreter []
