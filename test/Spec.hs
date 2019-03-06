@@ -38,27 +38,35 @@ testParsing :: String -> [Syntax.Expr] -> IO ()
 testParsing path expected = do
   code <- readFile $ testcasePath "kaleidoscope" path
   case (Syntax.parse code) of
-    Left e    -> [] `shouldBe` expected
-    Right ast -> ast `shouldBe` expected
+    Left e -> [Testcases.parseError e] `shouldBe` expected
+    Right ast     -> ast `shouldBe` expected
 
 main :: IO ()
 main = hspec $ do
   describe "Parsing" $ do
-    it "parse Hello, World!" $ do
-      testParsing "hello_world.kk" Testcases.printHelloWorld
+    it "parse 42 as int" $ do
+      testParsing "42.kk" Testcases.int42
+    it "parse 42.0 as double" $ do
+      testParsing "42.0.kk" Testcases.double42
+    it "parse a function with no arguments returning an int" $ do
+      testParsing "no_arguments_42.kk" Testcases.fnNoArgs42
+    it "parse a function with no arguments returning a double" $ do
+      testParsing "no_arguments_42.0.kk" Testcases.fnNoArgs42_0
 
   describe "Code generation" $ do
-    it "generate a main function returning a float" $ do
-      testCodeGeneration Testcases.double42 "42.asm"
+    it "generate a main function returning a double" $ do
+      testCodeGeneration Testcases.double42 "42.0.asm"
     it "generate a main function returning the last expression value" $ do
       testCodeGeneration Testcases.floatsEndingWith42 "42.asm"
-    it "generate a function taking no arguments and returning a float" $ do
-      testCodeGeneration Testcases.functionWithNoArgument "no_arguments_42.asm"
-    it "generate two functions with one calling the other" $ do
-      testCodeGeneration Testcases.functionCallWithNoArgument "42.asm"
+    it "generate a function taking no arguments and returning a double" $ do
+      testCodeGeneration Testcases.fnNoArgs42_0 "no_arguments_42.0.asm"
+    it "generate two functions with one calling the other and returning an int" $ do
+      testCodeGeneration Testcases.fnCallNoArgs42 "fn_call_42.asm"
+    it "generate two functions with one calling the other and returning a double" $ do
+      testCodeGeneration Testcases.fnCallNoArgs42_0 "fn_call_42.0.asm"
     it "generate two functions with one calling the other with an argument" $ do
-      testCodeGeneration Testcases.functionCallWithDoubleArgument "42.asm"
+      testCodeGeneration Testcases.fnCallDoubleArg "42.0.asm" -- could not work, depending on compiler optimisations
 
   describe "Compilation and output" $ do
     it "prints Hello, World!" $ do
-      testCompilationAndOutput "hello_world.kk" "Hello, World!\n"
+      testCompilationAndOutput "hello_world.kk" "Hello, World!\n" -- FIXME hello_world.kk is to be written
