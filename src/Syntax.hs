@@ -29,9 +29,9 @@ data Expr
     | Extern Name [Type] Type
     | Arg Name Type
     | Block [Expr]
-    | If Expr [Expr] [Expr]
-    | While Expr [Expr]
-    | For Name Expr Expr [Expr]
+    | If Expr Expr Expr
+    | While Expr Expr
+    | For Expr Expr Expr Expr
     deriving (Eq, Ord, Show)
 
 data Op
@@ -51,10 +51,6 @@ data Value
     | Str String
     | Array Value
     deriving (Eq, Ord, Show)
-
---- for_expr       <- 'for ' identifier '=' expression ',' identifier '<' expression ',' expression 'in ' expressions
---- if_expr        <- 'if ' expression 'then ' expressions ('else ' expressions ) ?
---- while_expr     <- 'while ' expression 'do ' expressions
 
 -- stmt <- kdefs * # eof
 pStmt :: Parser [Expr]
@@ -125,15 +121,55 @@ pType = do {
 
 -- expressions <- for_expr | if_expr | while_expr | expression (':' expression ) *
 pExpressions :: Parser Expr
-pExpressions = do { --pForExpr <|> pIfExpr <|> pWhileExpr <|> do {
+pExpressions = pForExpr <|> pIfExpr <|> pWhileExpr <|> do {
   expr <- pExpression;
   exprs <- many (do {
     reserved ":";
     pExpression;
   });
-  return $ case exprs of
-    [] -> expr
-    otherwise -> Block (expr:exprs)
+  return $ Block (expr:exprs)
+}
+
+-- for_expr <- 'for ' identifier '=' expression ',' identifier '<' expression ',' expression 'in ' expressions
+pForExpr :: Parser Expr
+pForExpr = do {
+  reserved "for";
+  -- (Name id) <- pIdentifier;
+  -- reserved "=";
+  e <- pExpression;
+  reserved ",";
+  e2 <- pExpression;
+  reserved ",";
+  e3 <- pExpression;
+  reserved "in";
+  es <- pExpressions;
+  return $ For e e2 e3 es;
+}
+
+-- if_expr <- 'if ' expression 'then ' expressions ('else ' expressions ) ?
+pIfExpr :: Parser Expr
+pIfExpr = do {
+  reserved "if";
+  c <- pExpression;
+  reserved "then";
+  t <- pExpressions;
+  e <- optional (do {
+    reserved "else";
+    pExpressions;
+  });
+  return $ case e of
+    Just f -> If c t f
+    Nothing -> If c t (Block []);
+}
+
+-- while_expr <- 'while ' expression 'do ' expressions
+pWhileExpr :: Parser Expr
+pWhileExpr = do {
+  reserved "while";
+  c <- pExpression;
+  reserved "do";
+  e <- pExpressions;
+  return $ While c e;
 }
 
 --- expression <- unary (# binop ( unary | expression ) ) *

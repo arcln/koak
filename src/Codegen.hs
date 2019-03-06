@@ -83,6 +83,7 @@ getTypeByName mbs name = case getFuncDefByName mbs name of
   Nothing   -> Nothing
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
+codegen (Syntax.Block b) = last $ map (\e -> codegen e) b
 codegen (Syntax.Decl (Syntax.Double v) _) = pure $ doublev v
 codegen (Syntax.Decl (Syntax.Int v) _) = pure $ intv v
 codegen (Syntax.Decl (Syntax.Str s) _) = do
@@ -97,16 +98,15 @@ codegen (Syntax.If cond thenb elseb) = mdo
   fname <- fresh
   ename <- fresh
 
-  let condm = codegen cond
-  condv <- condm
+  condv <- codegen cond
   condBr condv tname fname
 
   emitBlockStart tname
-  tout <- foldl (\_ e -> codegen e) condm thenb
+  tout <- codegen thenb -- foldl (\_ e -> codegen e) condm thenb
   br end
 
   emitBlockStart fname
-  fout <- foldl (\_ e -> codegen e) condm elseb
+  fout <- codegen elseb -- foldl (\_ e -> codegen e) condm elseb
   br end
 
   end <- block `named` (toBS ename)
@@ -119,17 +119,16 @@ codegen (Syntax.While cond b) = mdo
 
   br start
   start <- block `named` (toBS sname)
-  let condm = codegen cond
-  condv <- condm
+  condv <- codegen cond
   condBr condv bname ename
 
   emitBlockStart bname
-  out <- foldl (\_ e -> codegen e) condm b
+  out <- codegen b -- foldl (\_ e -> codegen e) condm b
   br start
 
   emitBlockStart ename
   return out
-codegen (Syntax.For name cond inc body) = codegen $ Syntax.While cond (body ++ [inc])
+codegen (Syntax.For name cond (Syntax.Block inc) (Syntax.Block body)) = codegen $ Syntax.While cond (Syntax.Block $ body ++ inc)
 codegen (Syntax.Call fname fargs) = do
   args <- mapM (\a -> do
     arg <- codegen a
@@ -145,27 +144,26 @@ codegen (Syntax.BinOp op lhs rhs) = case Map.lookup op binops of
     fn lhs' rhs'
   Nothing -> error $ "no such operator: " ++ (show op)
 
-buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> [Syntax.Expr] -> ModuleBuilder AST.Operand
-buildFunction name args retType body = function' (AST.Name name) args' retType (bodyBuilder body)
+buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> Syntax.Expr -> ModuleBuilder AST.Operand
+buildFunction name args retType body = function' (AST.Name name) args' retType bodyBuilder
   where
     args' = map arg args
     arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
     arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
     -- bodyBuilder b@(Syntax.While {}:es) args = bodyBuilderWithoutEntry args b
-    bodyBuilder b args = mdo
+    bodyBuilder args = mdo
       entry <- block `named` "entry"
     --   bodyBuilderWithoutEntry args b
     -- bodyBuilderWithoutEntry args b = mdo
-      bodyOps <- sequence $ map (\e -> codegen e) b
-      ret $ last bodyOps
+      ret =<< codegen body
 
 startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()
 startCodegen [] []     = return ()
 startCodegen [] mainEs = do
-  buildFunction "main" [] int $ reverse mainEs
+  buildFunction "main" [] int $ Syntax.Block $ reverse mainEs
   return ()
 startCodegen (Syntax.Function name args retType body:es) mainEs = do
-  buildFunction name args retType [body]
+  buildFunction name args retType body
   startCodegen es mainEs
 startCodegen (Syntax.Extern name argsType retType:es) mainEs = do
   extern' (AST.Name name) argsType retType
