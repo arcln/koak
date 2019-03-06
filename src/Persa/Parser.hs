@@ -147,6 +147,15 @@ fractional = do {
   return $ read ((if s == "+" then [] else s) ++ n ++ r);
 }
 
+double :: Parser Double
+double = do {
+  s <- (string "+" <|> string "-") <|> return [];
+  n <- some digit;
+  d <- char '.';
+  d' <- (some digit) <|> return "";
+  return $ read ((if s == "+" then [] else s) ++ n ++ (if length d' > 0 then d:d' else ""));
+}
+
 parens :: Parser a -> Parser a
 parens pa = do {
   reserved "(";
@@ -170,5 +179,5 @@ runParser p s = evalState ss []
       errs <- get
       case r of
         (Right res, (Reader [] _)) -> return $ Right res
-        (Right _, rs) -> return $ Left ((-1, -1), "string not empty")
+        (Right _, (Reader s _')) -> return $ Left ((-1, -1), "string not empty: " ++ s)
         (Left err, str) -> return $ Left $ getDeepestErr errs
