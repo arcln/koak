@@ -21,6 +21,7 @@ type Name = ShortByteString
 
 data Expr
     = Decl Type Name Expr
+    | Assign Name Expr
     | Data Value
     | BinOp Op Expr Expr
     | UnOp Op Expr
@@ -179,7 +180,10 @@ pWhileExpr = do {
 
 -- expression <- var_decl | const_str | unary (# binop ( unary | expression ) ) *
 pExpression :: Parser Expr
-pExpression = pVarDecl <|> pConstStr <|> pChain pTerm pBinOpLow pTerm
+pExpression = pVarDecl <|>
+  pVarAssign <|>
+  pConstStr <|>
+  pChain pTerm pBinOpLow pTerm
 
 pVarDecl :: Parser Expr
 pVarDecl = do {
@@ -188,6 +192,14 @@ pVarDecl = do {
   reserved "=";
   e <- pExpression;
   return $ Decl t i e;
+}
+
+pVarAssign :: Parser Expr
+pVarAssign = do {
+  i <- pIdentifier;
+  reserved "=";
+  e <- pExpression;
+  return $ Assign i e;
 }
 
 pConstStr :: Parser Expr
