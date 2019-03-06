@@ -4,13 +4,15 @@
 
 module Codegen (startCodegen, toBS) where
 
+import Debug.Trace
+
 import           Control.Monad.State
 import           Data.Word
 import           Data.List
+import           Data.Word
 import qualified Data.ByteString.Char8           as C8
 import qualified Data.ByteString.Short           as BS
 import qualified Data.Map                        as Map
-import Data.Word
 
 import           LLVM
 import           LLVM.IRBuilder
@@ -27,7 +29,6 @@ import qualified LLVM.AST.AddrSpace              as A
 import           LLVM.IRBuilder.Internal.SnocList
 
 import qualified Syntax
--- import qualified AstSelector
 
 align = 8
 
@@ -83,7 +84,9 @@ getTypeByName mbs name = case getFuncDefByName mbs name of
   Nothing   -> Nothing
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
-codegen (Syntax.Block b) = last $ map (\e -> codegen e) b
+codegen (Syntax.Block b) = do
+  ops <- sequence $ map codegen b
+  return $ seq ops (last ops)
 codegen (Syntax.Data (Syntax.Double v)) = pure $ doublev v
 codegen (Syntax.Data (Syntax.Int v)) = pure $ intv v
 codegen (Syntax.Data (Syntax.Str s)) = do
@@ -92,7 +95,16 @@ codegen (Syntax.Data (Syntax.Str s)) = do
   let str = ref (ptr (ArrayType (fromIntegral $ length s + 1) char)) name
   ptr <- bitcast str charptr
   return ptr
-codegen (Syntax.Var v) = pure $ local int v
+codegen (Syntax.Decl t n e) = do
+  var <- (alloca t (Just $ intv 1) align) `named` n
+  init <- codegen e
+  store var align init
+  val <- load var align
+  return $ intv 0
+codegen (Syntax.Var v) = do
+  let var = local charptr v -- FIXME: dehardcode type
+  val <- load var align     -- FIXME: compute me only if var type is pointer
+  return val
 codegen (Syntax.If cond thenb elseb) = mdo
   tname <- fresh
   fname <- fresh
@@ -172,3 +184,7 @@ startCodegen (Syntax.Extern name argsType retType False:es) mainEs = do
   extern' (AST.Name name) argsType retType
   startCodegen es mainEs
 startCodegen (expr:es) mainEs = startCodegen es (expr:mainEs)
+
+-- jit $ [ (Extern ( BS.toShort $ C8.pack "puts") [Types.ptr Types.i8]) Types.i32 False, (Call (BS.toShort $ C8.pack "puts") [Var (BS.toShort $ C8.pack "str")]), (Decl (Str "aze") (Just $ BS.toShort $ C8.pack "str")) ]
+-- jit $ [ (Decl (Str "aze") (Just $ BS.toShort $ C8.pack "str")), (Extern ( BS.toShort $ C8.pack "puts") [Types.ptr Types.i8]) Types.i32 False, (Call (BS.toShort $ C8.pack "puts") [Var (BS.toShort $ C8.pack "str")]) ]
+-- jit $ [ (Extern ( BS.toShort $ C8.pack "puts") [Types.ptr Types.i8]) Types.i32 False, (Call (BS.toShort $ C8.pack "puts") [Var (BS.toShort $ C8.pack "str")]) ]
