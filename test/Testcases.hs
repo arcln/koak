@@ -5,9 +5,9 @@ import LLVM.AST.Type         as LLVM
 
 import Syntax
 
-strDecl x = Decl (Str x) Nothing
-doubleDecl x = Decl (Double x) Nothing
-intDecl x = Decl (Int x) Nothing
+strDecl x = Block [Decl (Str x) Nothing]
+doubleDecl x = Block [Decl (Double x) Nothing]
+intDecl x = Block [Decl (Int x) Nothing]
 
 parseError (pos, err) = Decl (Str err) (Just (fromString ("Parse Error at " ++ show pos) :: Name))
 
