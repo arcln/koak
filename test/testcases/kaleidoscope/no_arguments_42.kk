@@ -1,0 +1,1 @@
+def noArguments() : int 42;

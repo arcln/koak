@@ -1,7 +1,7 @@
 ; ModuleID = 'main'
 source_filename = "<string>"
 
-define i32 @main() {
+define double @main() {
 entry:
-  ret i32 42
+  ret double 4.200000e+01
 }
