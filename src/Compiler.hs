@@ -56,9 +56,9 @@ jit expr = withContext $ \context ->
     withModuleFromAST context (preprocess expr) $ \compiledModule ->
       withPassManager optimizationPasses $ \pm -> do
         -- runPassManager pm compiledModule
-        asm <- moduleLLVMAssembly compiledModule
-        putStrLn $ BS.unpack asm
-        putStrLn "==================="
+        -- asm <- moduleLLVMAssembly compiledModule
+        -- putStrLn $ BS.unpack asm
+        -- putStrLn "==================="
         EE.withModuleInEngine executionEngine compiledModule $ \ee -> do
           mainfn <- EE.getFunction ee (AST.Name "main")
           case mainfn of

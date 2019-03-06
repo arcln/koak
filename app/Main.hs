@@ -18,8 +18,8 @@ runInterpreter mod = do
   input <- getLine
   case Syntax.parse input of
     Left ((i, j), err) -> putStrLn err
-    Right exprs -> trace (show exprs) $ do
-    -- Right exprs -> do
+    -- Right exprs -> trace (show exprs) $ do
+    Right exprs -> do
       Compiler.jit $ previousFuncs ++ exprs
       runInterpreter $ previousFuncs ++ exprs
   where

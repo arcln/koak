@@ -26,7 +26,7 @@ data Expr
     | Var Name
     | Call Name [Expr]
     | Function Name [Expr] Type Expr
-    | Extern Name [Type] Type
+    | Extern Name [Type] Type Bool
     | Arg Name Type
     | Block [Expr]
     | If Expr [Expr] [Expr]
@@ -233,11 +233,14 @@ pExtern = do {
   name <- pIdentifier;
   reserved "(";
   argsType <- many pType;
+  va <- optional $ reserved "...";
   reserved ")";
   reserved ":";
   ret <- pType;
   reserved ";";
-  return $ Extern name argsType ret
+  return (case va of
+    Just _ -> Extern name argsType ret True
+    Nothing -> Extern name argsType ret False);
 }
 
 pChain :: Parser Expr -> Parser (Expr -> Expr -> Expr) -> Parser Expr -> Parser Expr
