@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Codegen (startCodegen, toBS) where
+module Codegen (startCodegen, inferType, toBS) where
 
 import Debug.Trace
 
@@ -73,7 +73,7 @@ getFuncDefByName (ModuleBuilderState builderDefs _) name = find byName (getSnocL
     byName _ = False
 
 getFuncType :: AST.Definition -> AST.Type
-getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, _) _ _ _ _ _ _ _ _ _)) = getFuncPtr $ AST.FunctionType funcType paramsTypes False
+getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, isVaArgs) _ _ _ _ _ _ _ _ _)) = getFuncPtr $ AST.FunctionType funcType paramsTypes isVaArgs
   where
     paramsTypes = map (\(AST.Parameter t _ _) -> t) params
     getFuncPtr fn = PointerType (fn) (A.AddrSpace 0)
@@ -82,6 +82,28 @@ getTypeByName :: ModuleBuilderState -> AST.Name -> Maybe AST.Type
 getTypeByName mbs name = case getFuncDefByName mbs name of
   Just func -> Just $ getFuncType func
   Nothing   -> Nothing
+
+inferTypes :: String -> Syntax.Expr -> Syntax.Expr -> Type
+inferTypes name lhs rhs
+  | lhsType == rhsType  = lhsType
+  | otherwise             = error $ name ++ " types mismatch " ++ (show lhsType) ++ " " ++ (show rhsType)
+  where
+    lhsType = inferType lhs
+    rhsType = inferType rhs
+
+inferType :: Syntax.Expr -> Type
+inferType (Syntax.Block b) = last $ map inferType b
+inferType (Syntax.Data (Syntax.Double _)) = Types.double
+inferType (Syntax.Data (Syntax.Int _)) = int
+inferType (Syntax.Data (Syntax.Str _)) = charptr
+inferType (Syntax.Decl t _ _) = t
+inferType (Syntax.Assign _ expr) = inferType expr
+inferType (Syntax.Var name) = int -- FIXME
+inferType (Syntax.If _ thenb elseb) = inferTypes "if-else" thenb elseb
+inferType (Syntax.While _ b) = inferType b
+inferType (Syntax.For _ _ _ b) = inferType b
+inferType (Syntax.Call fname _) = int -- FIXME
+inferType (Syntax.BinOp op lhs rhs) = inferTypes (show op) lhs rhs
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Block b) = do
@@ -100,9 +122,15 @@ codegen (Syntax.Decl t n e) = do
   init <- codegen e
   store var align init
   val <- load var align
+  return val
+codegen (Syntax.Assign n e) = do
+  var <- codegen $ Syntax.Var n
+  init <- codegen e
+  store var align init
+  val <- load var align
   return $ intv 0
 codegen (Syntax.Var v) = do
-  let var = local charptr v -- FIXME: dehardcode type
+  let var = local charptr v   -- FIXME: dehardcode type
   val <- load var align     -- FIXME: compute me only if var type is pointer
   return val
 codegen (Syntax.If cond thenb elseb) = mdo
@@ -148,7 +176,7 @@ codegen (Syntax.Call fname fargs) = do
   state <- get'
   case (getTypeByName state (AST.Name fname)) of
     Just funcType -> call (ref (funcType) (AST.Name fname)) args
-    Nothing       -> error $ "could not find type of function " ++ (show fname)
+    Nothing       -> error $ "could not find type of function " ++ show fname
 codegen (Syntax.BinOp op lhs rhs) = case Map.lookup op binops of
   Just fn -> do
     lhs' <- codegen lhs
@@ -160,8 +188,8 @@ buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> Syntax.Expr -> Modu
 buildFunction name args retType body = function' (AST.Name name) args' retType bodyBuilder
   where
     args' = map arg args
-    arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
-    -- arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
+    -- arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
+    arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
     -- bodyBuilder b@(Syntax.While {}:es) args = bodyBuilderWithoutEntry args b
     bodyBuilder args = mdo
       entry <- block `named` "entry"
@@ -172,8 +200,9 @@ buildFunction name args retType body = function' (AST.Name name) args' retType b
 startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()
 startCodegen [] []     = return ()
 startCodegen [] mainEs = do
-  buildFunction "main" [] int $ Syntax.Block $ reverse mainEs
+  buildFunction "main" [] (inferType insts) insts
   return ()
+    where insts = Syntax.Block $ reverse mainEs
 startCodegen (Syntax.Function name args retType body:es) mainEs = do
   buildFunction name args retType body
   startCodegen es mainEs
