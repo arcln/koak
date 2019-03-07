@@ -1,15 +1,19 @@
 module Testcases where
 
 import Data.String
+import Data.String.Encode
 import LLVM.AST.Type         as LLVM
 
 import Syntax
 
-strDecl x = Block [Decl (Str x) Nothing]
-doubleDecl x = Block [Decl (Double x) Nothing]
-intDecl x = Block [Decl (Int x) Nothing]
+decl :: LLVM.Type -> String -> Value -> Expr
+decl t name x = Block [Decl t (convertString name) (Data x)]
 
-parseError (pos, err) = Decl (Str err) (Just (fromString ("Parse Error at " ++ show pos) :: Name))
+strDecl x     = decl (LLVM.ptr LLVM.i8) "str" (Str x)
+doubleDecl x  = decl LLVM.double "double" (Double x)
+intDecl x     = decl LLVM.i32 "int" (Int x)
+
+parseError (pos, err) = decl (LLVM.ptr LLVM.i8) (fromString ("Parse Error at " ++ show pos)) (Str err)
 
 int42'              = intDecl 42
 int42               = [int42']
