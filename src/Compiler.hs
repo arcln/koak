@@ -79,7 +79,7 @@ jit expr = withContext $ \context ->
           case mainfn of
             Just fn -> do
               putStr "< "
-              runCEntrypoint (inferType $ last $ expr) fn
+              runCEntrypoint (IntegerType 32) fn -- FIXME
             Nothing -> return ()
         return ()
   where
@@ -100,9 +100,16 @@ runCompiler filename = do
   case Syntax.parse content of
     Left ((i, j), err) -> putStrLn $ "error: " ++ show err
     Right exprs -> do
-      p <- hasArg "--asm"
+      showAsm <- hasArg "--asm"
+      showAst <- Compiler.hasArg "--ast"
+      case showAst of
+        True -> do
+          putStrLn "======= AST ======="
+          putStrLn (show exprs)
+          putStrLn "===================\n"
+        _ -> pure ()
       asm <- Compiler.compile $ exprs
-      case p of
+      case showAsm of
         True -> do
           putStrLn "======= ASM ======="
           putStrLn asm
