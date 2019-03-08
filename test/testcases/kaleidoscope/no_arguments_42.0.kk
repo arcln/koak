@@ -1,1 +1,1 @@
-def noArguments() : double 42;
+def noArguments() : double 42.0;
