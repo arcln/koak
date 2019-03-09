@@ -59,8 +59,9 @@ testParsing path expected = do
 
 main :: IO ()
 main = hspec $ do
-  -- describe "Boilerplate should not crash on LLVM error" $ do
-  --   it "works" $ testCompilationAndOutput "error.kk" ""
+  describe "Boilerplate" $ do
+    -- it "works" $ testCompilationAndOutput "error.kk" ""
+    it "don't crash on LLVM error" $ "crash" `shouldBe` "works"
 
   describe "Parsing" $ do
     it "parses 42 as int" $ do
@@ -96,7 +97,9 @@ main = hspec $ do
     it "displays AST and ASM with both --ast and --asm switches" $ do
       testKoak "hello_world.kk --ast" "======= AST =======\n[Extern \"puts\" [PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}] (IntegerType {typeBits = 32}) False,Block [Call \"puts\" [Data (Str \"Hello, world!\")]]]\n===================\n\n"
 
-  describe "JIT compiler" $ do
+  describe "JIT interpreter" $ do
+    it "launches without arguments and exits with no error code" $ do
+      testJit "" "" "> "
     it "launches without arguments and return an int" $ do
       testJit "42" "" "> < 42\n> "
     it "launches without arguments and return a double" $ do
@@ -132,7 +135,7 @@ main = hspec $ do
     it "correctly handles comparison operators" $ do
       testCompilationAndOutput "comp_op.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
     it "correctly handles comparison operators on doubles" $ do
-    --   testCompilationAndOutput "comp_op_double.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
+      -- testCompilationAndOutput "comp_op_double.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
       "crash" `shouldBe` "works"
     it "correctly handles computing operators" $ do
       testCompilationAndOutput "calc_op.kk" "2\n10000002\n4\n0\n-9999998\n5\n0\n0\n0\n0\n100\n50\n2\n5\n0\n0\n"

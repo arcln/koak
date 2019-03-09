@@ -46,7 +46,9 @@ runInterpreter mod = do
           _ -> pure ()
         result <- try (Compiler.jit $ (previousFuncs mod) ++ exprs) :: IO (Either SomeException ())
         case result of
-          Left e -> undefined
+          Left e -> do
+            putStrLn $ "error: " ++ (show e)
+            runInterpreter $ previousFuncs mod
           _ -> runInterpreter $ (previousFuncs mod) ++ exprs
   where
     previousFuncs b = [fn f | f <- b, isPersistent f]
