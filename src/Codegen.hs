@@ -201,15 +201,13 @@ astFind cond _ = Nothing
 -- astFind cond c@(Syntax.Call _ exprs)      = astFind' cond exprs
 -- astFind cond b@(Syntax.BinOp _ lhs rhs)   = astFind' cond [lhs, rhs]
 
-inferTypes :: ModuleBuilderState -> String -> Syntax.Expr -> Syntax.Expr -> (Type, Type)
-inferTypes s name lhs rhs
+inferTypes :: String -> Type -> Type -> (Type, Type)
+inferTypes name lhsType rhsType
   | lhsType == Types.double || rhsType == Types.double = (Types.double, inferRetType Types.double name)
   | lhsType == int || rhsType == int                   = (int, inferRetType int name)
   | lhsType == bool || rhsType == bool                 = (int, inferRetType int name)
   | otherwise = error $ name ++ " types mismatch " ++ (show lhsType) ++ " " ++ (show rhsType)
   where
-    lhsType = inferType s lhs
-    rhsType = inferType s rhs
     inferRetType _ "Eq"    = bool
     inferRetType _ "NotEq" = bool
     inferRetType _ "Lt"    = bool
@@ -234,7 +232,7 @@ inferTypes s name lhs rhs
 -- inferType s (Syntax.BinOp op lhs rhs) = fst $ inferTypes s (show op) lhs rhs
 
 getStrongType :: ModuleBuilderState -> Syntax.Expr -> Type
-getStrongType s (Syntax.BinOp op lhs rhs) = snd $ inferTypes s (show op) lhs rhs
+getStrongType s (Syntax.BinOp op lhs rhs) = snd $ inferTypes (show op) (getStrongType s lhs) (getStrongType s rhs)
 getStrongType s e = inferType s e
 
 inferType :: ModuleBuilderState -> Syntax.Expr -> Type
@@ -246,11 +244,11 @@ inferType _ (Syntax.Data (Syntax.Str _))    = charptr
 inferType _ (Syntax.Decl t _ _)             = t
 inferType s (Syntax.Assign _ expr)          = inferType s expr
 inferType s (Syntax.Var name)               = getVarTypeByName s (AST.Name name)
-inferType s (Syntax.If _ thenb elseb)       = fst $ inferTypes s "if-else" thenb elseb
+inferType s (Syntax.If _ thenb elseb)       = fst $ inferTypes "if-else" (inferType s thenb) (inferType s elseb)
 inferType s (Syntax.While _ b)              = inferType s b
 inferType s (Syntax.For _ _ _ b)            = inferType s b
 inferType s (Syntax.Call fname _)           = getFnRetTypeByName s (AST.Name fname)
-inferType s (Syntax.BinOp op lhs rhs)       = fst $ inferTypes s (show op) lhs rhs
+inferType s (Syntax.BinOp op lhs rhs)       = fst $ inferTypes (show op) (inferType s lhs) (inferType s rhs)
 
 inferType' :: [Syntax.Expr] -> Syntax.Expr -> Type
 inferType' _   (Syntax.Block [])               = int
@@ -261,11 +259,11 @@ inferType' _   (Syntax.Data (Syntax.Str _))    = charptr
 inferType' _   (Syntax.Decl t _ _)             = t
 inferType' ast (Syntax.Assign _ expr)          = inferType' ast expr
 inferType' ast (Syntax.Var name)               = getVarTypeByName' ast (AST.Name name)
--- inferType' ast (Syntax.If _ thenb elseb)       = inferTypes ast "if-else" thenb elseb
+inferType' ast (Syntax.If _ thenb elseb)       = fst $ inferTypes "if-else" (inferType' ast thenb) (inferType' ast elseb)
 inferType' ast (Syntax.While _ b)              = inferType' ast b
 inferType' ast (Syntax.For _ _ _ b)            = inferType' ast b
 inferType' ast (Syntax.Call fname _)           = getFnRetTypeByName' ast (AST.Name fname)
--- inferType' ast (Syntax.BinOp op lhs rhs)       = inferTypes ast (show op) lhs rhs
+inferType' ast (Syntax.BinOp op lhs rhs)       = fst $ inferTypes (show op) (inferType' ast lhs) (inferType' ast rhs)
 
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
