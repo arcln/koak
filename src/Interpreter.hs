@@ -13,7 +13,6 @@ runInterpreter mod = do
   eof <- isEOF
   if eof then pure () else do
     input <- getLine
-    -- let input = UTF8.unpack input'
     let finput = if last input /= ';' then input ++ ";" else input
     case Syntax.parse finput of
       Left ((i, j), err) -> putStrLn err

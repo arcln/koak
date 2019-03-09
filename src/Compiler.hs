@@ -128,4 +128,4 @@ runCompiler filename = do
       writeFile (filename ++ ".ll") asm
       command_ [] compiler [filename ++ ".ll"]
       command_ [] linker [filename ++ ".s"]
-      command_ [] "rm" ["-f", filename ++ ".ll", filename ++ ".s"]
+      -- command_ [] "rm" ["-f", filename ++ ".ll", filename ++ ".s"]

@@ -1,3 +1,3 @@
-using puts(string): int;
+using printf(string ...): int;
 
-puts("Hello, world!");
+printf("Hello, world!\n");

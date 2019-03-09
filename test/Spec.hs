@@ -91,11 +91,11 @@ main = hspec $ do
 
   describe "Compiler" $ do
     it "displays the assembly code with the --asm switch" $ do
-      testKoak "hello_world.kk --asm" "======= ASM =======\n; ModuleID = 'main'\nsource_filename = \"<string>\"\n\n@0 = unnamed_addr constant [14 x i8] c\"Hello, world!\\00\"\n\ndeclare i32 @puts(i8*)\n\ndefine i32 @main() {\nentry:\n  %0 = bitcast [14 x i8]* @0 to i8*\n  %1 = call i32 @puts(i8* %0)\n  ret i32 %1\n}\n\n===================\n\n"
+      testKoak "hello_world.kk --asm" "======= ASM =======\n; ModuleID = 'main'\nsource_filename = \"<string>\"\n\n@0 = unnamed_addr constant [15 x i8] c\"Hello, world!\\0A\\00\"\n\ndeclare i32 @printf(i8*, ...)\n\ndefine i32 @main() {\nentry:\n  %0 = bitcast [15 x i8]* @0 to i8*\n  %1 = call i32 (i8*, ...) @printf(i8* %0)\n  ret i32 %1\n}\n\n===================\n\n"
     it "displays the parser AST with the --ast switch" $ do
-      testKoak "hello_world.kk --ast" "======= AST =======\n[Extern \"puts\" [PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}] (IntegerType {typeBits = 32}) False,Block [Call \"puts\" [Data (Str \"Hello, world!\")]]]\n===================\n\n"
+      testKoak "hello_world.kk --ast" "======= AST =======\n[Extern \"printf\" [PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}] (IntegerType {typeBits = 32}) True,Block [Call \"printf\" [Data (Str \"Hello, world!\\n\")]]]\n===================\n\n"
     it "displays AST and ASM with both --ast and --asm switches" $ do
-      testKoak "hello_world.kk --ast" "======= AST =======\n[Extern \"puts\" [PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}] (IntegerType {typeBits = 32}) False,Block [Call \"puts\" [Data (Str \"Hello, world!\")]]]\n===================\n\n"
+      testKoak "hello_world.kk --ast" "======= AST =======\n[Extern \"printf\" [PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}] (IntegerType {typeBits = 32}) True,Block [Call \"printf\" [Data (Str \"Hello, world!\\n\")]]]\n===================\n\n"
 
   describe "JIT interpreter" $ do
     it "launches without arguments and exits with no error code" $ do
@@ -113,7 +113,7 @@ main = hspec $ do
     it "launches with both --asm and --ast switches" $ do
       testJit "42" "--asm --ast" "> ======= AST =======\n[Block [Data (Int 42)]]\n===================\n\n======= ASM =======\n; ModuleID = 'main'\nsource_filename = \"<string>\"\n\ndefine i32 @main() {\nentry:\n  ret i32 42\n}\n\n===================\n\n< 42\n> "
     it "executes multiples instructions" $ do
-      testJit "42\nusing puts(string): int; puts(\"aze\");" "" "> < 42\n> < 10\n> aze\n"
+      testJit "42\nusing printf(string ...): int; printf(\"aze\\\\n\");" "" "> < 42\n> < 4\n> aze\n"
 
   describe "Koak" $ do
     it "prints Hello, World!" $ do
