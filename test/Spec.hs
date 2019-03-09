@@ -135,13 +135,13 @@ main = hspec $ do
     it "correctly handles comparison operators" $ do
       testCompilationAndOutput "comp_op.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
     it "correctly handles comparison operators on doubles" $ do
-      -- testCompilationAndOutput "comp_op_double.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
-      "crash" `shouldBe` "works"
+      testCompilationAndOutput "comp_op_double.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
+      -- "crash" `shouldBe` "works"
     it "correctly handles computing operators" $ do
       testCompilationAndOutput "calc_op.kk" "2\n10000002\n4\n0\n-9999998\n5\n0\n0\n0\n0\n100\n50\n2\n5\n0\n0\n"
     it "correctly handles computing operators on doubles" $ do
-    --   testCompilationAndOutput "calc_op_double.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
-      "crash" `shouldBe` "works"
+      testCompilationAndOutput "calc_op_double.kk" "2.000000\n10000002.000000\n4.000000\n0.000000\n-9999998.000000\n5.000000\n0.000000\n0.000000\n0.000000\n0.000000\n100.000000\n50.000000\n2.000000\n5.000000\n0.100000\n0.000000\n"
+      -- "crash" `shouldBe` "works"
     it "correctly handles operators priority" $ do
       testCompilationAndOutput "prio_op.kk" "2\n10000008\n4\n16\n5\n1\n-9\n8\n1\n2\n"
     it "auto infer bit type to integer type if needed on func call" $ do

@@ -207,8 +207,13 @@ pConstStr = do {
   reserved "\"";
   str <- many $ notChar '\"';
   reserved "\"";
-  return $ Data (Str str);
+  return $ Data (Str $ consume str []);
 }
+  where
+    consume [] out = out
+    consume ['\\', 'n'] out = out ++ ['\n']
+    consume ('\\':'n':cs) out = consume cs $ out ++ ['\n']
+    consume (c:cs) out = consume cs $ out ++ [c]
 
 pTerm :: Parser Expr
 pTerm = pChain pUnary pBinOpHigh (pUnary <|> pExpression)

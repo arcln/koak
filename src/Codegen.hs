@@ -51,17 +51,6 @@ op = AST.ConstantOperand
 ref t n = op $ C.GlobalReference t n
 local t n = AST.LocalReference t (AST.Name n)
 
--- toDouble :: Syntax.Expr -> Syntax.Expr
--- toDouble (Syntax.Data (Syntax.Int v)) = Syntax.Data $ Syntax.Double $ fromIntegral v
--- toDouble e@(Syntax.Data (Syntax.Double {})) = e
--- toDouble e = error $ "trying to cast non-number type to floating point: " ++ (show e)
-
--- deduceType :: Syntax.Expr -> Type -> Syntax.Expr
--- deduceType e (IntegerType 1)              = toDouble e
--- deduceType e (IntegerType 32)             = e
--- deduceType e (FloatingPointType DoubleFP) = toDouble e
--- deduceType e t                            = e
-
 as :: AST.Operand -> Type -> IRBuilderT ModuleBuilder AST.Operand
 as o@(AST.ConstantOperand (C.Int 1 _)) (IntegerType 1) = pure o
 as o@(AST.ConstantOperand (C.Int 1 _)) (IntegerType 32) = zext o int
@@ -85,6 +74,9 @@ as o@(AST.LocalReference (IntegerType 1) _) (FloatingPointType DoubleFP) = do
 as o@(AST.ConstantOperand (C.Int 1 _)) (FloatingPointType DoubleFP) = do
   tmp <- zext o int
   sitofp tmp Types.double
+as o@(AST.LocalReference t _) t'
+  | t == t' = pure o
+  | otherwise = error $ "cannot cast " ++ (show t) ++ " to " ++ (show t')
 as o t = error $ "cannot cast " ++ (show o) ++ " to " ++ (show t)
 
 ibinops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> AST.Operand -> m AST.Operand)
@@ -125,6 +117,13 @@ toBS :: AST.Name -> BS.ShortByteString
 toBS (AST.Name n) = n
 toBS (AST.UnName n) = BS.toShort $ C8.pack $ drop 1 $ show n
 
+zipVaArgs :: [a] -> [b] -> [(a, Maybe b)]
+zipVaArgs as bs = zipVaArgs' as bs []
+  where
+    zipVaArgs' [] _ out = out
+    zipVaArgs' (a:as) [] out = zipVaArgs' as [] $ out ++ [(a, Nothing)]
+    zipVaArgs' (a:as) (b:bs) out = zipVaArgs' as bs $ out ++ [(a, Just b)]
+
 getFuncDefByName :: ModuleBuilderState -> AST.Name -> Maybe AST.Definition
 getFuncDefByName (ModuleBuilderState builderDefs _) name = find byName (getSnocList builderDefs)
   where
@@ -133,6 +132,10 @@ getFuncDefByName (ModuleBuilderState builderDefs _) name = find byName (getSnocL
 
 getFnRetType :: AST.Definition -> AST.Type
 getFnRetType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ _ _ _ _ _ _ _ _ _ _)) = funcType
+
+getFnArgsType :: AST.Definition -> [AST.Type]
+getFnArgsType (AST.GlobalDefinition (AST.Function _ _ _ _ _ _ _ params _ _ _ _ _ _ _ _ _)) = paramsType
+  where paramsType = map (\(Parameter t _ _) -> t) $ fst params
 
 getFuncType :: AST.Definition -> AST.Type
 getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, isVaArgs) _ _ _ _ _ _ _ _ _)) = asPointer $ AST.FunctionType funcType paramsTypes isVaArgs
@@ -149,6 +152,11 @@ getFnTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
 getFnTypeByName mbs name = case getFuncDefByName mbs name of
   Just func -> getFuncType func
   Nothing   -> error $ "could not find type of function " ++ show name
+
+getFnArgsTypeByName :: ModuleBuilderState -> AST.Name -> [AST.Type]
+getFnArgsTypeByName mbs name = case getFuncDefByName mbs name of
+  Just func -> getFnArgsType func
+  Nothing   -> error $ "could not find args type of function " ++ show name
 
 getFnRetTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
 getFnRetTypeByName mbs name = case getFuncDefByName mbs name of
@@ -279,19 +287,25 @@ codegen (Syntax.For init cond inc body) = do
   emitBlockStart ename
   return out
 codegen (Syntax.Call fname fargs) = do
-  args <- mapM (\a -> do
-    arg <- codegen a
-    return (arg, [])) fargs
   state <- getIR
+  let funcArgs = getFnArgsTypeByName state (AST.Name fname)
+  let funcRet = getFnRetTypeByName state (AST.Name fname)
   let funcType = getFnTypeByName state (AST.Name fname)
+  args <- mapM genArg $ zipVaArgs fargs funcArgs
   call (ref (funcType) (AST.Name fname)) args
+    where
+      genArg (a, t) = do
+        arg <- case t of
+          Just t' -> codegen a >>= (`as` t')
+          _ -> codegen a
+        return (arg, [])
 codegen e@(Syntax.BinOp op lhs rhs) = do
   state <- getIR
   let opType = inferType state e
   let retType = getStrongType state e
   let binops = if opType == int then ibinops else fbinops
   case Map.lookup op binops of
-    Just fn -> trace "a" $ trace "b" $ do
+    Just fn -> do
       lhs'  <- codegen lhs
       lhs'' <- lhs' `as` opType
       rhs'  <- codegen rhs
