@@ -10,6 +10,7 @@ import           Control.Monad.State
 import           Data.Word
 import           Data.List
 import           Data.Word
+import           Data.Maybe
 import qualified Data.ByteString.Char8           as C8
 import qualified Data.ByteString.Short           as BS
 import qualified Data.Map                        as Map
@@ -145,7 +146,7 @@ getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, is
 
 getVarTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
 getVarTypeByName (ModuleBuilderState _ builderTypeDefs) name = case Map.lookup name builderTypeDefs of
-  Just t -> t
+  Just t  -> t
   Nothing -> error $ "could not find type of variable " ++ show name
 
 getFnTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
@@ -162,6 +163,43 @@ getFnRetTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
 getFnRetTypeByName mbs name = case getFuncDefByName mbs name of
   Just func -> getFnRetType func
   Nothing   -> error $ "could not find return type of function " ++ show name
+
+getVarTypeByName' :: [Syntax.Expr] -> AST.Name -> AST.Type
+getVarTypeByName' ast name = case astFind' declByName ast of
+  Just (Syntax.Decl t _ _) -> t
+  Nothing -> error $ "could not find type of variable " ++ show name ++ " in the ast"
+  where
+    declByName d@(Syntax.Decl _ dname _ ) = (AST.Name dname) == name
+    declByName _                          = False
+
+getFnRetTypeByName' :: [Syntax.Expr] -> AST.Name -> AST.Type
+getFnRetTypeByName' ast name = case astFind' funcByName ast of
+  Just (Syntax.Function _ _ t _)  -> t
+  Just (Syntax.Extern _ _ t _)    -> t
+  Nothing -> error $ "could not find type of function " ++ show name ++ " in the ast"
+  where
+    funcByName d@(Syntax.Function fname _ _ _ ) = (AST.Name fname) == name
+    funcByName d@(Syntax.Extern ename _ _ _ )   = (AST.Name ename) == name
+    funcByName _                                = False
+
+astFind' :: (Syntax.Expr -> Bool) -> [Syntax.Expr] -> Maybe Syntax.Expr
+astFind' cond exprs = case catMaybes $ map (astFind cond) exprs of
+  (x:_) -> Just x
+  []    -> Nothing
+
+astFind :: (Syntax.Expr -> Bool) -> Syntax.Expr -> Maybe Syntax.Expr
+astFind cond b@(Syntax.Block exprs)             = astFind' cond exprs
+astFind cond d@(Syntax.Decl _ _ expr)           = if cond d then Just d else Nothing
+astFind cond f@(Syntax.Function _ exprs _ expr) = if cond f then Just f else astFind' cond (expr:exprs)
+astFind cond e@(Syntax.Extern _ _ _ _)          = if cond e then Just e else Nothing
+astFind cond i@(Syntax.If c thenb elseb)        = astFind' cond [c, thenb, elseb]
+astFind cond w@(Syntax.While a b)               = astFind' cond [a, b]
+astFind cond f@(Syntax.For a b c d)             = astFind' cond [a, b, c, d]
+astFind cond _ = Nothing
+-- astFind cond a@(Syntax.Assign _ expr)     = astFind cond expr
+-- astFind cond v@(Syntax.Var _)             = if cond v then Just v else Nothing
+-- astFind cond c@(Syntax.Call _ exprs)      = astFind' cond exprs
+-- astFind cond b@(Syntax.BinOp _ lhs rhs)   = astFind' cond [lhs, rhs]
 
 inferTypes :: ModuleBuilderState -> String -> Syntax.Expr -> Syntax.Expr -> (Type, Type)
 inferTypes s name lhs rhs
@@ -180,24 +218,55 @@ inferTypes s name lhs rhs
     inferRetType _ "Gte"   = bool
     inferRetType d _       = d
 
-inferType :: ModuleBuilderState -> Syntax.Expr -> Type
-inferType s (Syntax.Block []) = int
-inferType s (Syntax.Block b) = last $ map (inferType s) b
-inferType s (Syntax.Data (Syntax.Double _)) = Types.double
-inferType s (Syntax.Data (Syntax.Int _)) = int
-inferType s (Syntax.Data (Syntax.Str _)) = charptr
-inferType s (Syntax.Decl t _ _) = t
-inferType s (Syntax.Assign _ expr) = inferType s expr
-inferType s (Syntax.Var name) = getVarTypeByName s (AST.Name name)
-inferType s (Syntax.If _ thenb elseb) = fst $ inferTypes s "if-else" thenb elseb
-inferType s (Syntax.While _ b) = inferType s b
-inferType s (Syntax.For _ _ _ b) = inferType s b
-inferType s (Syntax.Call fname _) = getFnRetTypeByName s (AST.Name fname)
-inferType s (Syntax.BinOp op lhs rhs) = fst $ inferTypes s (show op) lhs rhs
+-- <<<<<<< develop
+-- inferType s (Syntax.Block []) = int
+-- inferType s (Syntax.Block b) = last $ map (inferType s) b
+-- inferType s (Syntax.Data (Syntax.Double _)) = Types.double
+-- inferType s (Syntax.Data (Syntax.Int _)) = int
+-- inferType s (Syntax.Data (Syntax.Str _)) = charptr
+-- inferType s (Syntax.Decl t _ _) = t
+-- inferType s (Syntax.Assign _ expr) = inferType s expr
+-- inferType s (Syntax.Var name) = getVarTypeByName s (AST.Name name)
+-- inferType s (Syntax.If _ thenb elseb) = fst $ inferTypes s "if-else" thenb elseb
+-- inferType s (Syntax.While _ b) = inferType s b
+-- inferType s (Syntax.For _ _ _ b) = inferType s b
+-- inferType s (Syntax.Call fname _) = getFnRetTypeByName s (AST.Name fname)
+-- inferType s (Syntax.BinOp op lhs rhs) = fst $ inferTypes s (show op) lhs rhs
 
 getStrongType :: ModuleBuilderState -> Syntax.Expr -> Type
 getStrongType s (Syntax.BinOp op lhs rhs) = snd $ inferTypes s (show op) lhs rhs
 getStrongType s e = inferType s e
+
+inferType :: ModuleBuilderState -> Syntax.Expr -> Type
+inferType _ (Syntax.Block [])               = int
+inferType s (Syntax.Block b)                = last $ map (inferType s) b
+inferType _ (Syntax.Data (Syntax.Double _)) = Types.double
+inferType _ (Syntax.Data (Syntax.Int _))    = int
+inferType _ (Syntax.Data (Syntax.Str _))    = charptr
+inferType _ (Syntax.Decl t _ _)             = t
+inferType s (Syntax.Assign _ expr)          = inferType s expr
+inferType s (Syntax.Var name)               = getVarTypeByName s (AST.Name name)
+inferType s (Syntax.If _ thenb elseb)       = fst $ inferTypes s "if-else" thenb elseb
+inferType s (Syntax.While _ b)              = inferType s b
+inferType s (Syntax.For _ _ _ b)            = inferType s b
+inferType s (Syntax.Call fname _)           = getFnRetTypeByName s (AST.Name fname)
+inferType s (Syntax.BinOp op lhs rhs)       = fst $ inferTypes s (show op) lhs rhs
+
+inferType' :: [Syntax.Expr] -> Syntax.Expr -> Type
+inferType' _   (Syntax.Block [])               = int
+inferType' ast (Syntax.Block b)                = last $ map (inferType' ast) b
+inferType' _   (Syntax.Data (Syntax.Double _)) = Types.double
+inferType' _   (Syntax.Data (Syntax.Int _))    = int
+inferType' _   (Syntax.Data (Syntax.Str _))    = charptr
+inferType' _   (Syntax.Decl t _ _)             = t
+inferType' ast (Syntax.Assign _ expr)          = inferType' ast expr
+inferType' ast (Syntax.Var name)               = getVarTypeByName' ast (AST.Name name)
+-- inferType' ast (Syntax.If _ thenb elseb)       = inferTypes ast "if-else" thenb elseb
+inferType' ast (Syntax.While _ b)              = inferType' ast b
+inferType' ast (Syntax.For _ _ _ b)            = inferType' ast b
+inferType' ast (Syntax.Call fname _)           = getFnRetTypeByName' ast (AST.Name fname)
+-- inferType' ast (Syntax.BinOp op lhs rhs)       = inferTypes ast (show op) lhs rhs
+
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Block []) = do
@@ -330,21 +399,21 @@ buildFunction name args retType body = function' (AST.Name name) args' retType b
     -- bodyBuilderWithoutEntry args b = mdo
       ret =<< codegen body
 
-startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder (Maybe Type)
-startCodegen [] []     = return Nothing
-startCodegen [] mainEs = do
-  state <- getMB
-  let retType = getStrongType state insts
+startCodegen :: [Syntax.Expr] -> ([Syntax.Expr], [Syntax.Expr]) -> ModuleBuilder (Maybe Type)
+startCodegen [] ([], _)       = return Nothing
+startCodegen [] (mainEs, ast) = do
+  let retType = inferType' ast insts
   buildFunction "main" [] retType insts
   return $ Just retType
     where insts = Syntax.Block $ reverse mainEs
-startCodegen (Syntax.Function name args retType body:es) mainEs = do
+startCodegen (Syntax.Function name args retType body:es) state = do
   buildFunction name args retType body
-  startCodegen es mainEs
-startCodegen (Syntax.Extern name argsType retType True:es) mainEs = do
+  startCodegen es state
+startCodegen (Syntax.Extern name argsType retType True:es) state = do
   externVarArgs (AST.Name name) argsType retType
-  startCodegen es mainEs
-startCodegen (Syntax.Extern name argsType retType False:es) mainEs = do
+  startCodegen es state
+startCodegen (Syntax.Extern name argsType retType False:es) state = do
   extern' (AST.Name name) argsType retType
-  startCodegen es mainEs
-startCodegen (expr:es) mainEs = startCodegen es (expr:mainEs)
+  startCodegen es state
+startCodegen (expr:es) (mainEs, ast) = startCodegen es (expr:mainEs, ast)
+

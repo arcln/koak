@@ -43,7 +43,7 @@ hasArg arg = do
   return $ isJust $ find (\a -> a == arg) args
 
 preprocess :: [Syntax.Expr] -> (Maybe Type, AST.Module)
-preprocess expr = buildModule' "main" $ startCodegen expr []
+preprocess expr = buildModule' "main" $ startCodegen expr ([], expr)
 
 jitCompiler :: Context -> (EE.MCJIT -> IO a) -> IO a
 jitCompiler c = EE.withMCJIT c optlevel model ptrelim fastins
@@ -128,4 +128,4 @@ runCompiler filename = do
       writeFile (filename ++ ".ll") asm
       command_ [] compiler [filename ++ ".ll"]
       command_ [] linker [filename ++ ".s"]
-      command_ [] "rm" [filename ++ ".ll", filename ++ ".s"]
+      command_ [] "rm" ["-f", filename ++ ".ll", filename ++ ".s"]
