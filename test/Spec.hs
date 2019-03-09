@@ -144,7 +144,9 @@ main = hspec $ do
       "crash" `shouldBe` "works"
     it "correctly handles operators priority" $ do
       testCompilationAndOutput "prio_op.kk" "2\n10000008\n4\n16\n5\n1\n-9\n8\n1\n2\n"
-    it "auto infer bit type to integer type if needed" $ do
+    it "auto infer bit type to integer type if needed on func call" $ do
       testCompilationAndOutput "cast_bit_to_int.kk" "1\n"
-    it "auto infer int type to double type if needed" $ do
+    it "auto infer int type to double type if needed on func call" $ do
       testCompilationAndOutput "cast_int_to_double.kk" "42\n"
+    it "handle multi-type computing with operators" $ do
+      testCompilationAndOutput "multi_type_compute.kk" "1764.000000\n1764.000000\n42\n42\n42.000000\n42.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n"

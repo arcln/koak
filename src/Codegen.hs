@@ -23,7 +23,7 @@ import           LLVM.AST.Type                   as Types
 import qualified LLVM.AST                        as AST
 import qualified LLVM.AST.Float                  as F
 import qualified LLVM.AST.Constant               as C
-import qualified LLVM.AST.FloatingPointPredicate as FPP
+import qualified LLVM.AST.FloatingPointPredicate as FP
 import qualified LLVM.AST.IntegerPredicate       as IP
 import qualified LLVM.AST.AddrSpace              as A
 import           LLVM.IRBuilder.Internal.SnocList
@@ -47,8 +47,48 @@ intv v = op $ C.Int 32 v
 longv v = op $ C.Int 64 v
 doublev v = op $ C.Float (F.Double v)
 
-binops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> AST.Operand -> m AST.Operand)
-binops = Map.fromList
+op = AST.ConstantOperand
+ref t n = op $ C.GlobalReference t n
+local t n = AST.LocalReference t (AST.Name n)
+
+-- toDouble :: Syntax.Expr -> Syntax.Expr
+-- toDouble (Syntax.Data (Syntax.Int v)) = Syntax.Data $ Syntax.Double $ fromIntegral v
+-- toDouble e@(Syntax.Data (Syntax.Double {})) = e
+-- toDouble e = error $ "trying to cast non-number type to floating point: " ++ (show e)
+
+-- deduceType :: Syntax.Expr -> Type -> Syntax.Expr
+-- deduceType e (IntegerType 1)              = toDouble e
+-- deduceType e (IntegerType 32)             = e
+-- deduceType e (FloatingPointType DoubleFP) = toDouble e
+-- deduceType e t                            = e
+
+as :: AST.Operand -> Type -> IRBuilderT ModuleBuilder AST.Operand
+as o@(AST.ConstantOperand (C.Int 1 _)) (IntegerType 1) = pure o
+as o@(AST.ConstantOperand (C.Int 1 _)) (IntegerType 32) = zext o int
+as o@(AST.ConstantOperand (C.Int 32 _)) (IntegerType 1) = trunc o bool
+as o@(AST.ConstantOperand (C.Int 32 _)) (IntegerType 32) = pure o
+as o@(AST.ConstantOperand (C.Int 32 _)) (FloatingPointType DoubleFP) = sitofp o Types.double
+as o@(AST.ConstantOperand (C.Float _)) (IntegerType 1) = fptosi o bool
+as o@(AST.ConstantOperand (C.Float _)) (IntegerType 32) = fptosi o int
+as o@(AST.ConstantOperand (C.Float _)) (FloatingPointType DoubleFP) = pure o
+as o@(AST.LocalReference (IntegerType 1) _) (IntegerType 1) = pure o
+as o@(AST.LocalReference (IntegerType 1) _) (IntegerType 32) = zext o int
+as o@(AST.LocalReference (IntegerType 32) _) (IntegerType 1) = trunc o bool
+as o@(AST.LocalReference (IntegerType 32) _) (IntegerType 32) = pure o
+as o@(AST.LocalReference (IntegerType 32) _) (FloatingPointType DoubleFP) = sitofp o Types.double
+as o@(AST.LocalReference (FloatingPointType DoubleFP) _) (IntegerType 1) = fptosi o bool
+as o@(AST.LocalReference (FloatingPointType DoubleFP) _) (IntegerType 32) = fptosi o int
+as o@(AST.LocalReference (FloatingPointType DoubleFP) _) (FloatingPointType DoubleFP) = pure o
+as o@(AST.LocalReference (IntegerType 1) _) (FloatingPointType DoubleFP) = do
+  tmp <- zext o int
+  sitofp tmp Types.double
+as o@(AST.ConstantOperand (C.Int 1 _)) (FloatingPointType DoubleFP) = do
+  tmp <- zext o int
+  sitofp tmp Types.double
+as o t = error $ "cannot cast " ++ (show o) ++ " to " ++ (show t)
+
+ibinops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> AST.Operand -> m AST.Operand)
+ibinops = Map.fromList
   [ (Syntax.Plus, add)
   , (Syntax.Minus, sub)
   , (Syntax.Times, mul)
@@ -61,9 +101,19 @@ binops = Map.fromList
   , (Syntax.Lte, icmp IP.SLE)
   ]
 
-op = AST.ConstantOperand
-ref t n = op $ C.GlobalReference t n
-local t n = AST.LocalReference t (AST.Name n)
+fbinops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> AST.Operand -> m AST.Operand)
+fbinops = Map.fromList
+  [ (Syntax.Plus, fadd)
+  , (Syntax.Minus, fsub)
+  , (Syntax.Times, fmul)
+  , (Syntax.Divide, fdiv)
+  , (Syntax.Eq, fcmp FP.OEQ)
+  , (Syntax.NotEq, fcmp FP.ONE)
+  , (Syntax.Lt, fcmp FP.OLT)
+  , (Syntax.Gt, fcmp FP.OGT)
+  , (Syntax.Gte, fcmp FP.OGE)
+  , (Syntax.Lte, fcmp FP.OLE)
+  ]
 
 getIR :: IRBuilderT ModuleBuilder ModuleBuilderState
 getIR = liftModuleState $ get
@@ -105,13 +155,22 @@ getFnRetTypeByName mbs name = case getFuncDefByName mbs name of
   Just func -> getFnRetType func
   Nothing   -> error $ "could not find return type of function " ++ show name
 
-inferTypes :: ModuleBuilderState -> String -> Syntax.Expr -> Syntax.Expr -> Type
+inferTypes :: ModuleBuilderState -> String -> Syntax.Expr -> Syntax.Expr -> (Type, Type)
 inferTypes s name lhs rhs
-  | lhsType == rhsType  = lhsType
-  | otherwise           = error $ name ++ " types mismatch " ++ (show lhsType) ++ " " ++ (show rhsType)
+  | lhsType == Types.double || rhsType == Types.double = (Types.double, inferRetType Types.double name)
+  | lhsType == int || rhsType == int                   = (int, inferRetType int name)
+  | lhsType == bool || rhsType == bool                 = (int, inferRetType int name)
+  | otherwise = error $ name ++ " types mismatch " ++ (show lhsType) ++ " " ++ (show rhsType)
   where
     lhsType = inferType s lhs
     rhsType = inferType s rhs
+    inferRetType _ "Eq"    = bool
+    inferRetType _ "NotEq" = bool
+    inferRetType _ "Lt"    = bool
+    inferRetType _ "Gt"    = bool
+    inferRetType _ "Lte"   = bool
+    inferRetType _ "Gte"   = bool
+    inferRetType d _       = d
 
 inferType :: ModuleBuilderState -> Syntax.Expr -> Type
 inferType s (Syntax.Block []) = int
@@ -122,11 +181,15 @@ inferType s (Syntax.Data (Syntax.Str _)) = charptr
 inferType s (Syntax.Decl t _ _) = t
 inferType s (Syntax.Assign _ expr) = inferType s expr
 inferType s (Syntax.Var name) = getVarTypeByName s (AST.Name name)
-inferType s (Syntax.If _ thenb elseb) = inferTypes s "if-else" thenb elseb
+inferType s (Syntax.If _ thenb elseb) = fst $ inferTypes s "if-else" thenb elseb
 inferType s (Syntax.While _ b) = inferType s b
 inferType s (Syntax.For _ _ _ b) = inferType s b
 inferType s (Syntax.Call fname _) = getFnRetTypeByName s (AST.Name fname)
-inferType s (Syntax.BinOp op lhs rhs) = inferTypes s (show op) lhs rhs
+inferType s (Syntax.BinOp op lhs rhs) = fst $ inferTypes s (show op) lhs rhs
+
+getStrongType :: ModuleBuilderState -> Syntax.Expr -> Type
+getStrongType s (Syntax.BinOp op lhs rhs) = snd $ inferTypes s (show op) lhs rhs
+getStrongType s e = inferType s e
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
 codegen (Syntax.Block []) = do
@@ -167,7 +230,8 @@ codegen (Syntax.If cond thenb elseb) = mdo
   fname <- fresh
   ename <- fresh
 
-  condv <- codegen cond
+  condv' <- codegen cond
+  condv  <- trunc condv' bool
   condBr condv tname fname
 
   emitBlockStart tname
@@ -221,12 +285,22 @@ codegen (Syntax.Call fname fargs) = do
   state <- getIR
   let funcType = getFnTypeByName state (AST.Name fname)
   call (ref (funcType) (AST.Name fname)) args
-codegen (Syntax.BinOp op lhs rhs) = case Map.lookup op binops of
-  Just fn -> do
-    lhs' <- codegen lhs
-    rhs' <- codegen rhs
-    fn lhs' rhs'
-  Nothing -> error $ "no such operator: " ++ (show op)
+codegen e@(Syntax.BinOp op lhs rhs) = do
+  state <- getIR
+  let opType = inferType state e
+  let retType = getStrongType state e
+  let binops = if opType == int then ibinops else fbinops
+  case Map.lookup op binops of
+    Just fn -> trace "a" $ trace "b" $ do
+      lhs'  <- codegen lhs
+      lhs'' <- lhs' `as` opType
+      rhs'  <- codegen rhs
+      rhs'' <- rhs' `as` opType
+      res   <- fn lhs'' rhs''
+      case retType of
+        IntegerType 1 -> res `as` int
+        _ -> res `as` retType
+    Nothing -> error $ "no such operator: " ++ (show op)
 codegen expr = error $ "uncomputable node found in AST: " ++ (show expr)
 
 buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> Syntax.Expr -> ModuleBuilder AST.Operand
@@ -246,7 +320,7 @@ startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder (Maybe Type)
 startCodegen [] []     = return Nothing
 startCodegen [] mainEs = do
   state <- getMB
-  let retType = inferType state insts
+  let retType = getStrongType state insts
   buildFunction "main" [] retType insts
   return $ Just retType
     where insts = Syntax.Block $ reverse mainEs
