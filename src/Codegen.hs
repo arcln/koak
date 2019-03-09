@@ -171,7 +171,7 @@ codegen (Syntax.If cond thenb elseb) = mdo
   condBr condv tname fname
 
   emitBlockStart tname
-  tout <- codegen thenb -- foldl (\_ e -> codegen e) condm thenb
+  tout <- codegen thenb
   br end
 
   emitBlockStart fname
@@ -242,12 +242,13 @@ buildFunction name args retType body = function' (AST.Name name) args' retType b
     -- bodyBuilderWithoutEntry args b = mdo
       ret =<< codegen body
 
-startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()
-startCodegen [] []     = return ()
+startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder (Maybe Type)
+startCodegen [] []     = return Nothing
 startCodegen [] mainEs = do
   state <- getMB
-  buildFunction "main" [] (inferType state insts) insts
-  return ()
+  let retType = inferType state insts
+  buildFunction "main" [] retType insts
+  return $ Just retType
     where insts = Syntax.Block $ reverse mainEs
 startCodegen (Syntax.Function name args retType body:es) mainEs = do
   buildFunction name args retType body
@@ -259,7 +260,3 @@ startCodegen (Syntax.Extern name argsType retType False:es) mainEs = do
   extern' (AST.Name name) argsType retType
   startCodegen es mainEs
 startCodegen (expr:es) mainEs = startCodegen es (expr:mainEs)
-
--- jit $ [ (Extern ( BS.toShort $ C8.pack "puts") [Types.ptr Types.i8]) Types.i32 False, (Call (BS.toShort $ C8.pack "puts") [Var (BS.toShort $ C8.pack "str")]), (Decl (Str "aze") (Just $ BS.toShort $ C8.pack "str")) ]
--- jit $ [ (Decl (Str "aze") (Just $ BS.toShort $ C8.pack "str")), (Extern ( BS.toShort $ C8.pack "puts") [Types.ptr Types.i8]) Types.i32 False, (Call (BS.toShort $ C8.pack "puts") [Var (BS.toShort $ C8.pack "str")]) ]
--- jit $ [ (Extern ( BS.toShort $ C8.pack "puts") [Types.ptr Types.i8]) Types.i32 False, (Call (BS.toShort $ C8.pack "puts") [Var (BS.toShort $ C8.pack "str")]) ]
