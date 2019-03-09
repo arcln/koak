@@ -329,10 +329,10 @@ pBinOpHigh = pOperator "*" (BinOp Times) <|>
   pOperator "/" (BinOp Divide) <|>
   pOperator "==" (BinOp Eq) <|>
   pOperator "!=" (BinOp NotEq) <|>
-  pOperator ">" (BinOp Gt) <|>
-  pOperator "<" (BinOp Lt) <|>
   pOperator ">=" (BinOp Gte) <|>
-  pOperator "<=" (BinOp Lte)
+  pOperator "<=" (BinOp Lte) <|>
+  pOperator ">" (BinOp Gt) <|>
+  pOperator "<" (BinOp Lt)
 
 pUnOp :: Parser (Expr -> Expr)
 pUnOp = pOperator "!" (UnOp Not) <|> pOperator "-" (UnOp Minus)

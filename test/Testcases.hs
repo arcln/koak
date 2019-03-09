@@ -7,7 +7,7 @@ import LLVM.AST.Type         as LLVM
 import Syntax
 
 decl :: LLVM.Type -> String -> Value -> Expr
-decl t name x = Block [Decl t (convertString name) (Data x)]
+decl t name x = Block [Data x]
 
 strDecl x     = decl (LLVM.ptr LLVM.i8) "str" (Str x)
 doubleDecl x  = decl LLVM.double "double" (Double x)
@@ -39,11 +39,11 @@ fnCallNoArgs42 = fnCallNoArgs fnNoArgs42' "fnNoArgs42"
 fnCallNoArgs42_0 = fnCallNoArgs fnNoArgs42_0' "fnNoArgs42_0"
 
 fnCallDoubleArg =
-  [ Function calleeName [arg] LLVM.double arg
+  [ Function calleeName [Arg (fromString "x") LLVM.double] LLVM.double arg
   , Call calleeName double42
   ]
   where
-    arg         = Var (fromString "arg" :: Name)
+    arg         = Var (fromString "x" :: Name)
     calleeName  = (fromString "returnFirstArg" :: Name)
 
 printHelloWorld = undefined -- TODO implement with an AST a function printing hello world

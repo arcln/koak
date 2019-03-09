@@ -1,3 +1,2 @@
 using puts(string): int;
-
-puts("Hello, world!");
+puts(2 + 2.0);

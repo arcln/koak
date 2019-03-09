@@ -3,5 +3,7 @@ koak.cabal
 *~
 koak
 a.out
-__tmp__.ll
-__tmp__.s
+*.ll
+*.s
+*.tix
+*.mix

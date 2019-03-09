@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Codegen (startCodegen, toBS) where
+module Codegen (startCodegen, inferType, toBS, ) where
 
 import Debug.Trace
 
@@ -50,17 +50,26 @@ doublev v = op $ C.Float (F.Double v)
 binops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> AST.Operand -> m AST.Operand)
 binops = Map.fromList
   [ (Syntax.Plus, add)
-  , (Syntax.Minus, fsub)
+  , (Syntax.Minus, sub)
   , (Syntax.Times, mul)
-  , (Syntax.Divide, fdiv)
+  , (Syntax.Divide, sdiv)
   , (Syntax.Eq, icmp IP.EQ)
   , (Syntax.NotEq, icmp IP.NE)
+  , (Syntax.Lt, icmp IP.SLT)
+  , (Syntax.Gt, icmp IP.SGT)
+  , (Syntax.Gte, icmp IP.SGE)
+  , (Syntax.Lte, icmp IP.SLE)
   ]
 
 op = AST.ConstantOperand
 ref t n = op $ C.GlobalReference t n
 local t n = AST.LocalReference t (AST.Name n)
-get' = liftModuleState $ get
+
+getIR :: IRBuilderT ModuleBuilder ModuleBuilderState
+getIR = liftModuleState $ get
+
+getMB :: ModuleBuilder ModuleBuilderState
+getMB = liftModuleState $ get
 
 toBS :: AST.Name -> BS.ShortByteString
 toBS (AST.Name n) = n
@@ -72,18 +81,57 @@ getFuncDefByName (ModuleBuilderState builderDefs _) name = find byName (getSnocL
     byName (AST.GlobalDefinition (AST.Function _ _ _ _ _ _ typeName _ _ _ _ _ _ _ _ _ _)) = typeName == name
     byName _ = False
 
+getFnRetType :: AST.Definition -> AST.Type
+getFnRetType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ _ _ _ _ _ _ _ _ _ _)) = funcType
+
 getFuncType :: AST.Definition -> AST.Type
-getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, _) _ _ _ _ _ _ _ _ _)) = getFuncPtr $ AST.FunctionType funcType paramsTypes False
+getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, isVaArgs) _ _ _ _ _ _ _ _ _)) = asPointer $ AST.FunctionType funcType paramsTypes isVaArgs
   where
     paramsTypes = map (\(AST.Parameter t _ _) -> t) params
-    getFuncPtr fn = PointerType (fn) (A.AddrSpace 0)
+    asPointer fn = PointerType (fn) (A.AddrSpace 0)
 
-getTypeByName :: ModuleBuilderState -> AST.Name -> Maybe AST.Type
-getTypeByName mbs name = case getFuncDefByName mbs name of
-  Just func -> Just $ getFuncType func
-  Nothing   -> Nothing
+getVarTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
+getVarTypeByName (ModuleBuilderState _ builderTypeDefs) name = case Map.lookup name builderTypeDefs of
+  Just t -> t
+  Nothing -> error $ "could not find type of variable " ++ show name
+
+getFnTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
+getFnTypeByName mbs name = case getFuncDefByName mbs name of
+  Just func -> getFuncType func
+  Nothing   -> error $ "could not find type of function " ++ show name
+
+getFnRetTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
+getFnRetTypeByName mbs name = case getFuncDefByName mbs name of
+  Just func -> getFnRetType func
+  Nothing   -> error $ "could not find return type of function " ++ show name
+
+inferTypes :: ModuleBuilderState -> String -> Syntax.Expr -> Syntax.Expr -> Type
+inferTypes s name lhs rhs
+  | lhsType == rhsType  = lhsType
+  | otherwise           = error $ name ++ " types mismatch " ++ (show lhsType) ++ " " ++ (show rhsType)
+  where
+    lhsType = inferType s lhs
+    rhsType = inferType s rhs
+
+inferType :: ModuleBuilderState -> Syntax.Expr -> Type
+inferType s (Syntax.Block []) = int
+inferType s (Syntax.Block b) = last $ map (inferType s) b
+inferType s (Syntax.Data (Syntax.Double _)) = Types.double
+inferType s (Syntax.Data (Syntax.Int _)) = int
+inferType s (Syntax.Data (Syntax.Str _)) = charptr
+inferType s (Syntax.Decl t _ _) = t
+inferType s (Syntax.Assign _ expr) = inferType s expr
+inferType s (Syntax.Var name) = getVarTypeByName s (AST.Name name)
+inferType s (Syntax.If _ thenb elseb) = inferTypes s "if-else" thenb elseb
+inferType s (Syntax.While _ b) = inferType s b
+inferType s (Syntax.For _ _ _ b) = inferType s b
+inferType s (Syntax.Call fname _) = getFnRetTypeByName s (AST.Name fname)
+inferType s (Syntax.BinOp op lhs rhs) = inferTypes s (show op) lhs rhs
 
 codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
+codegen (Syntax.Block []) = do
+  unreachable
+  return $ intv 0
 codegen (Syntax.Block b) = do
   ops <- sequence $ map codegen b
   return $ seq ops (last ops)
@@ -100,11 +148,20 @@ codegen (Syntax.Decl t n e) = do
   init <- codegen e
   store var align init
   val <- load var align
-  return $ intv 0
-codegen (Syntax.Var v) = do
-  let var = local charptr v -- FIXME: dehardcode type
-  val <- load var align     -- FIXME: compute me only if var type is pointer
   return val
+codegen (Syntax.Assign n e) = do
+  var <- codegen $ Syntax.Var n
+  init <- codegen e
+  store var align init
+  val <- load var align
+  return $ intv 0
+codegen v'@(Syntax.Var v) = do
+  state <- getIR
+  let varType = inferType state v'
+  let var = local varType v
+  case varType of
+    (PointerType _ _) -> load var align
+    _                 -> return var
 codegen (Syntax.If cond thenb elseb) = mdo
   tname <- fresh
   fname <- fresh
@@ -118,7 +175,7 @@ codegen (Syntax.If cond thenb elseb) = mdo
   br end
 
   emitBlockStart fname
-  fout <- codegen elseb -- foldl (\_ e -> codegen e) condm elseb
+  fout <- codegen elseb
   br end
 
   end <- block `named` (toBS ename)
@@ -140,28 +197,44 @@ codegen (Syntax.While cond b) = mdo
 
   emitBlockStart ename
   return out
-codegen (Syntax.For name cond (Syntax.Block inc) (Syntax.Block body)) = codegen $ Syntax.While cond (Syntax.Block $ body ++ inc)
+codegen (Syntax.For init cond inc body) = do
+  sname <- fresh
+  bname <- fresh
+  ename <- fresh
+
+  _ <- codegen init
+  start <- block `named` (toBS sname)
+  condv <- codegen cond
+  condBr condv bname ename
+
+  emitBlockStart bname
+  out <- codegen body
+  _ <- codegen inc
+  br start
+
+  emitBlockStart ename
+  return out
 codegen (Syntax.Call fname fargs) = do
   args <- mapM (\a -> do
     arg <- codegen a
     return (arg, [])) fargs
-  state <- get'
-  case (getTypeByName state (AST.Name fname)) of
-    Just funcType -> call (ref (funcType) (AST.Name fname)) args
-    Nothing       -> error $ "could not find type of function " ++ (show fname)
+  state <- getIR
+  let funcType = getFnTypeByName state (AST.Name fname)
+  call (ref (funcType) (AST.Name fname)) args
 codegen (Syntax.BinOp op lhs rhs) = case Map.lookup op binops of
   Just fn -> do
     lhs' <- codegen lhs
     rhs' <- codegen rhs
     fn lhs' rhs'
   Nothing -> error $ "no such operator: " ++ (show op)
+codegen expr = error $ "uncomputable node found in AST: " ++ (show expr)
 
 buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> Syntax.Expr -> ModuleBuilder AST.Operand
 buildFunction name args retType body = function' (AST.Name name) args' retType bodyBuilder
   where
     args' = map arg args
-    arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
-    -- arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
+    -- arg (Syntax.Arg n (PointerType (IntegerType 8) _)) = (charptr, LLVM.IRBuilder.ParameterName n, [ReadOnly, NonNull, NoAlias, NoCapture])
+    arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
     -- bodyBuilder b@(Syntax.While {}:es) args = bodyBuilderWithoutEntry args b
     bodyBuilder args = mdo
       entry <- block `named` "entry"
@@ -172,8 +245,10 @@ buildFunction name args retType body = function' (AST.Name name) args' retType b
 startCodegen :: [Syntax.Expr] -> [Syntax.Expr] -> ModuleBuilder ()
 startCodegen [] []     = return ()
 startCodegen [] mainEs = do
-  buildFunction "main" [] int $ Syntax.Block $ reverse mainEs
+  state <- getMB
+  buildFunction "main" [] (inferType state insts) insts
   return ()
+    where insts = Syntax.Block $ reverse mainEs
 startCodegen (Syntax.Function name args retType body:es) mainEs = do
   buildFunction name args retType body
   startCodegen es mainEs
