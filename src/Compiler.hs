@@ -24,6 +24,7 @@ import qualified LLVM.ExecutionEngine  as EE
 import           System.Command
 
 import           Codegen
+import           LLVM
 import qualified Syntax
 
 import           Debug.Trace
@@ -41,8 +42,8 @@ hasArg arg = do
   args <- getArgs
   return $ isJust $ find (\a -> a == arg) args
 
-preprocess :: [Syntax.Expr] -> AST.Module
-preprocess expr = buildModule "main" $ startCodegen expr []
+preprocess :: [Syntax.Expr] -> (Maybe Type, AST.Module)
+preprocess expr = buildModule' "main" $ startCodegen expr []
 
 jitCompiler :: Context -> (EE.MCJIT -> IO a) -> IO a
 jitCompiler c = EE.withMCJIT c optlevel model ptrelim fastins
@@ -53,19 +54,27 @@ jitCompiler c = EE.withMCJIT c optlevel model ptrelim fastins
     fastins  = Nothing
 
 compile :: [Syntax.Expr] -> IO String
-compile expr = withContext $ \context ->
-  withModuleFromAST context (preprocess expr) $ \compiledModule ->
+compile expr = withContext $ \context -> do
+  let (_, ast) = preprocess expr
+  withModuleFromAST context ast $ \compiledModule ->
     withPassManager optimizationPasses $ \pm -> do
-      -- runPassManager pm compiledModule
+      p <- hasArg "-O"
+      case p of
+        True -> runPassManager pm compiledModule
+        _ -> pure False
       asm <- moduleLLVMAssembly compiledModule
       return $ BS.unpack asm
 
 jit :: [Syntax.Expr] -> IO ()
 jit expr = withContext $ \context ->
-  jitCompiler context $ \executionEngine ->
-    withModuleFromAST context (preprocess expr) $ \compiledModule ->
+  jitCompiler context $ \executionEngine -> do
+    let (retType, ast) = preprocess expr
+    withModuleFromAST context ast $ \compiledModule ->
       withPassManager optimizationPasses $ \pm -> do
-        -- runPassManager pm compiledModule
+        p' <- hasArg "-O"
+        case p' of
+          True -> runPassManager pm compiledModule
+          _ -> pure False
         p <- hasArg "--asm"
         case p of
           True -> do
@@ -79,20 +88,21 @@ jit expr = withContext $ \context ->
           case mainfn of
             Just fn -> do
               putStr "< "
-              runCEntrypoint (IntegerType 32) fn -- FIXME
+              runCEntrypoint retType fn -- FIXME
             Nothing -> return ()
         return ()
   where
-    runCEntrypoint (IntegerType 32) fn = do
+    runCEntrypoint (Just (IntegerType 32)) fn = do
       res <- haskFunInt (castFunPtr fn :: FunPtr (IO Int))
       putStrLn $ show res
-    runCEntrypoint (FloatingPointType DoubleFP) fn = do
+    runCEntrypoint (Just (FloatingPointType DoubleFP)) fn = do
       res <- haskFunDouble (castFunPtr fn :: FunPtr (IO Double))
       putStrLn $ show res
-    runCEntrypoint (PointerType (IntegerType 8) _) fn = do
+    runCEntrypoint (Just (PointerType (IntegerType 8) _)) fn = do
       res <- haskFunCString (castFunPtr fn :: FunPtr (IO CString))
       str <- peekCString res
       putStrLn str
+    runCEntrypoint Nothing fn = pure ()
 
 runCompiler :: String -> IO ()
 runCompiler filename = do
@@ -118,4 +128,4 @@ runCompiler filename = do
       writeFile (filename ++ ".ll") asm
       command_ [] compiler [filename ++ ".ll"]
       command_ [] linker [filename ++ ".s"]
-      -- command_ [] "rm" [filename ++ ".ll", filename ++ ".s"]
+      command_ [] "rm" [filename ++ ".ll", filename ++ ".s"]

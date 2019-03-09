@@ -27,6 +27,7 @@ watch:
 	stack build --file-watch
 
 test:
+	rm -f ./koak-exe.tix
 	@stack test --fast --file-watch --coverage
 
 .PHONY: all clean fclean re watch test

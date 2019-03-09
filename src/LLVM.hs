@@ -1,6 +1,7 @@
-module LLVM (extern', function') where
+module LLVM (extern', function', buildModule') where
 
 import Data.Traversable
+import Data.ByteString.Short hiding (length)
 import LLVM.AST hiding (function')
 import LLVM.AST.Global
 import LLVM.AST.Type
@@ -42,3 +43,8 @@ extern' nm argtys retty = do
     }
   let funty = ptr $ FunctionType retty argtys False
   pure $ ConstantOperand $ GlobalReference funty nm
+
+buildModule' :: ShortByteString -> ModuleBuilder a -> (a, Module)
+buildModule' nm = mkModule . runModuleBuilder emptyModuleBuilder
+  where
+    mkModule (x, ds) = (x, defaultModule { moduleName = nm, moduleDefinitions = ds })
