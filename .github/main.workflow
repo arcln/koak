@@ -4,7 +4,13 @@ workflow "Build and test on push" {
 }
 
 action "Compile" {
-  uses = "docker://library/haskell:latest"
+  uses = "./.github/image"
   runs = "stack"
   args = "build"
+}
+
+action "Test" {
+  uses = "./.github/image"
+  runs = "stack"
+  args = "test"
 }
