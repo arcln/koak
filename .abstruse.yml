@@ -1,0 +1,13 @@
+image:
+
+cache:
+  - .stack-work
+
+before_install:
+  - apt update
+
+install:
+  - apt install -y llvm
+
+script:
+  - stack test
