@@ -176,3 +176,34 @@ printf("%f\n", 42. * (1 == 1) * 42);
 printf("%f\n", 42. * 42 * (1 == 1));
 printf("%f\n", 42 * 42. * (1 == 1));
 ```
+
+## Kaleidoscope Grammar
+
+Our Kaleidoscope implementation use the following BNF grammar.
+
+```
+stmt <- kdefs * # eof
+kdefs <- extern | 'def ' defs ';' | expressions ';'
+extern <- 'using' identifier '(' type* ('...')? ')' ':' type ';'
+defs <- prototype expressions
+prototype <- identifier prototype_args
+prototype_args <- '(' ( identifier ':' type ) * ')' ':' type
+type <- 'int ' | 'double ' | 'void '
+expressions <- for_expr | if_expr | while_expr | expression (':' expression ) *
+for_expr <- 'for ' expression ',' expression ',' expression 'in ' expressions
+if_expr <- 'if ' expression 'then ' expressions ('else ' expressions ) ?
+while_expr <- 'while ' expression 'do ' expressions
+expression <- var_decl | var_assign | const_str | unary (# binop ( unary | expression ) ) *
+var_decl <- type var_assign
+var_assign <- identifier '=' expression
+const_str <- '"' (.!'"')* '"'
+unary <- # unop unary | postfix
+postfix <- primary call_expr ?
+call_expr <- '(' ( expression (',' expression ) *) ? ')'
+primary <- identifier | literal | '(' expressions ')
+identifier <- [a - zA - Z ][ a - zA - Z0 -9]*
+dot <- '.' !'.'
+decimal_const <- [0 -9]+
+double_const <- ( decimal_const dot [0 -9]* | dot [0 -9]+ )
+literal <- decimal_const | double_const
+```
