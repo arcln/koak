@@ -66,17 +66,13 @@ fbinops = Map.fromList
 getIR :: IRBuilderT ModuleBuilder ModuleBuilderState
 getIR = liftModuleState $ get
 
-getMB :: ModuleBuilder ModuleBuilderState
-getMB = liftModuleState $ get
-
 toBS :: AST.Name -> BS.ShortByteString
-toBS (AST.Name n) = n
 toBS (AST.UnName n) = BS.toShort $ C8.pack $ drop 1 $ show n
 
 zipVaArgs :: [a] -> [b] -> [(a, Maybe b)]
 zipVaArgs as bs = zipVaArgs' as bs []
   where
-    zipVaArgs' [] _ out = out
+    zipVaArgs' [] [] out = out
     zipVaArgs' (a:as) [] out = zipVaArgs' as [] $ out ++ [(a, Nothing)]
     zipVaArgs' (a:as) (b:bs) out = zipVaArgs' as bs $ out ++ [(a, Just b)]
 
