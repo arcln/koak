@@ -38,13 +38,13 @@ align = 8
 iunops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> m AST.Operand)
 iunops = Map.fromList
   [ (Syntax.Minus, sub $ intv 0)
-  , (Syntax.Not, add $ intv 1)
+  , (Syntax.Not, icmp IP.EQ $ intv 0)
   ]
 
 funops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> m AST.Operand)
 funops = Map.fromList
   [ (Syntax.Minus, fsub $ doublev 0)
-  , (Syntax.Not, fadd $ doublev 1)
+  , (Syntax.Not, fcmp FP.OEQ $ doublev 0)
   ]
 
 ibinops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> AST.Operand -> m AST.Operand)
