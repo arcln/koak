@@ -5,6 +5,6 @@ workflow "Build and test on push" {
 
 action "Compile" {
   uses = "docker://library/haskell:latest"
-  runs = "bash"
-  args = "-c \"stack build\""
+  runs = "stack"
+  args = "build"
 }
