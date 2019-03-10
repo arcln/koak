@@ -1,4 +1,4 @@
-# koak
+# Koak
 
 Koak is a Kaleidoscope compiler. The Kaleidoscope programming language is a constraint programming language embedding constraints into an imperative object-oriented language. It adds keywords always, once, and assert..during (formerly while..assert) to make statements about relational invariants. Objects have constraint constructors, which are not methods, to enforce the meanings of user-defined datatypes.
 
@@ -37,16 +37,6 @@ You can also run it in command prompt mode:
 
 
 ## Features
-
-
-
-    | Call Name [Expr]
-    | Function Name [Expr] Type Expr
-    | Extern Name [Type] Type Bool
-    | If Expr Expr Expr
-    | While Expr Expr
-    | For Expr Expr Expr Expr
-
 
 ### Langage features
 
@@ -103,6 +93,8 @@ Operations can be perform on variables or values.
 
 #### Functions
 
+##### Declaration
+
 ```C
 def avg(a: int b: int): int
   int x = a + b:
@@ -125,6 +117,62 @@ This seems like a regular function prototype but `using` replace `def` keyword.
 
 > `...` is for var args
 
+##### Call
+
+```C
+printf("Average of 10 & 20: %d\n", avg(10, 20));
+```
+
+Calling a function is like a lot of common langages.
+
+#### Control Flow
+
+##### If/else
+```C
+string s = if 1 == 2 then "equal" else "not equal";
+```
+
+The `if` expression is formatted like this `if CONDITION then RETURN_TRUE else RETURN_FALSE;`.
+
+##### While
+```C
+int a = 10;
+while a > 0 do a = a - 1 : printf("loop\n");
+```
+
+The `while` loop is formatted like this `while CONDITION do EXPRESSIONS;`.
+
+##### For
+```C
+for int i = 0, i < 10, i = i + 1 in printf("loop %i\n", i);
+```
+
+The `for` loop is formatted like this `for INITIALIZATION, CONDITION, INCREMENTATION in EXPRESSIONS;`.
+
 ### JIT
 
+Just-in-time (JIT) compilation is a way of executing computer code that involves compilation during execution of a program – at run time – rather than prior to execution. Most often, this consists of source code or more commonly bytecode translation to machine code, which is then executed directly.
+
+JIT compilation is accessible via the command prompt interface.
+
 ### Type inference
+
+Type inference refers to the automatic detection of the data type of an expression in a programming language.
+
+Here are a few examples:
+```C
+using printf(string ...): int;
+
+printf("%f\n", 42. * 42);
+printf("%f\n", 42 * 42.);
+printf("%d\n", (1 == 1) * 42);
+printf("%d\n", 42 * (1 == 1));
+printf("%f\n", (1 == 1) * 42.);
+printf("%f\n", 42. * (1 == 1));
+printf("%f\n", (1 == 1) * 42 * 42.);
+printf("%f\n", (1 == 1) * 42. * 42);
+printf("%f\n", 42 * (1 == 1) * 42.);
+printf("%f\n", 42. * (1 == 1) * 42);
+printf("%f\n", 42. * 42 * (1 == 1));
+printf("%f\n", 42 * 42. * (1 == 1));
+```
