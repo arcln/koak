@@ -1,5 +1,6 @@
 module Helpers where
 
+import           System.Console.Pretty
 import           LLVM
 import           LLVM.IRBuilder
 import           LLVM.AST.Linkage
@@ -21,3 +22,12 @@ doublev v = op $ C.Float (F.Double v)
 op = AST.ConstantOperand
 ref t n = op $ C.GlobalReference t n
 local t n = AST.LocalReference t (AST.Name n)
+
+printError :: ((Int, Int), String) -> IO ()
+printError ((i, j), err) = do
+  putStrLn $ (style Bold $ show i ++ ":" ++ show j ++ ": ")
+    ++ (style Bold . color Red $ "error: ")
+    ++ ("unexpected token ")
+    ++ (style Bold $ "‘" ++ (head $ words $ err) ++ "’")
+  putStrLn $ " " ++ err
+  putStrLn $ " " ++ (style Bold . color Green $ "^")

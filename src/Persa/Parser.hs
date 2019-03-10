@@ -8,6 +8,9 @@ import Debug.Trace
 
 import Data.Char
 import Data.Typeable
+import Data.Text.Conversions
+import qualified Data.Text as Text
+
 
 import Persa.Reader
 type ParseError = ((Int, Int), String)
@@ -164,12 +167,13 @@ parens pa = do {
   return r;
 }
 
-getDeepestErr :: [((Int, Int), String)] -> ((Int, Int), String)
-getDeepestErr [] = ((-1, -1), "")
-getDeepestErr errs = foldr1 (\a b -> if a `deeperThan` b then a else b) errs
+getFinalError :: [((Int, Int), String)] -> ((Int, Int), String)
+getFinalError [] = ((-1, -1), "")
+getFinalError errs = keepFirstLine $ foldr1 (\a b -> if a `deeperThan` b then a else b) errs
   where
     deeperThan ((x, y), _) ((x2, y2), _') | x == x2 = y > y2
                                           | otherwise = x > x2
+    keepFirstLine (l, str) = (l, convertText $ head $ Text.splitOn (toText "\\n") (toText str))
 
 runParser :: Parser a -> String -> Either ((Int, Int), String) a
 runParser p s = evalState ss []
@@ -179,5 +183,5 @@ runParser p s = evalState ss []
       errs <- get
       case r of
         (Right res, (Reader [] _)) -> return $ Right res
-        (Right _, (Reader s _')) -> return $ Left ((-1, -1), "string not empty: " ++ s)
-        (Left err, str) -> return $ Left $ getDeepestErr errs
+        (Right _, (Reader s _')) -> return $ Left $ getFinalError errs
+        (Left err, str) -> return $ Left $ getFinalError errs

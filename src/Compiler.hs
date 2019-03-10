@@ -26,6 +26,7 @@ import           System.Command
 
 import           Codegen
 import           LLVM
+import           Helpers
 import qualified Syntax
 
 import           Debug.Trace
@@ -84,7 +85,7 @@ compile expr = withContext $ \context -> do
   case result of
     Left (SomeException e) -> return $ Left $ "error: " ++ (removeCallStack $ show e)
     Right asm -> return $ Right asm
-   
+
 
 jit :: [Syntax.Expr] -> IO ()
 jit expr = withContext $ \context ->
@@ -133,7 +134,7 @@ runCompiler :: String -> IO ()
 runCompiler filename = do
   content <- readFile filename
   case Syntax.parse content of
-    Left ((i, j), err) -> putStrLn $ "error: " ++ show err
+    Left err -> printError err
     Right exprs -> do
       showAsm <- hasArg "--asm"
       showAst <- Compiler.hasArg "--ast"
@@ -150,7 +151,7 @@ runCompiler filename = do
           putStrLn asm'
           putStrLn "===================\n"
         _ -> pure ()
-      case asm of 
+      case asm of
         Right asm' -> do
           writeFile (filename ++ ".ll") asm'
           command_ [] compiler [filename ++ ".ll"]
