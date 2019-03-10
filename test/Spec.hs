@@ -20,7 +20,7 @@ testcasePath folder path = "./test/testcases/" ++ folder ++ ('/':path)
 testCompilationAndOutput :: String -> String -> IO ()
 testCompilationAndOutput path expected = do
   Compiler.runCompiler $ testcasePath "kaleidoscope" path
-  (_, hout, _, _) <- exec "./a.out"
+  (_, hout, _, _) <- exec "./a.out && rm ./a.out"
   case hout of
     Nothing   -> do putStrLn "An error occurred..."; exitFailure
     Just hout -> do
@@ -105,14 +105,20 @@ main = hspec $ do
       testKoak "error.kk" "error: cannot cast FloatingPointType {floatingPointType = DoubleFP} to PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}\n"
     it "outputs an error when variable name not found" $ do
       testKoak "var_error.kk" "error: could not find type of variable Name \"aze\" in the ast\n"
-    it "outputs an error when assignin an unknown variable" $ do
+    it "outputs an error when assigning an unknown variable" $ do
       testKoak "assign_error.kk" "error: could not find type of variable Name \"aze\" in the ast\n"
+    it "outputs an error when assigning a constant" $ do
+      testKoak "assign_const.kk" "error: cannot assign constant \"x\"\n"
+    it "outputs an error when adding a string and a number" $ do
+      testKoak "invalid_add.kk" "error: ?"
 
   describe "JIT interpreter" $ do
     it "launches without arguments and exits with no error code" $ do
       testJit "" "" "> > "
     it "launches without arguments and return an int" $ do
       testJit "42" "" "> < 42\n> "
+    it "launches without arguments and return a negative int" $ do
+      testJit "-42" "" "> < -42\n> "
     it "launches without arguments and return a double" $ do
       testJit "42.0" "" "> < 42.0\n> "
     it "launches without arguments and return a string" $ do
@@ -126,9 +132,13 @@ main = hspec $ do
     it "executes multiples instructions" $ do
       testJit "42\n43\n44\n45\n" "" "> < 42\n> < 43\n> < 44\n> < 45\n> > "
 
-  describe "Koak" $ do
+  describe "Generated binary" $ do
     it "prints Hello, World!" $ do
       testCompilationAndOutput "hello_world.kk" "Hello, world!\n"
+    it "executes the subject example" $ do
+      testCompilationAndOutput "subject.kk" "2.000000\n"
+    it "calls atoi() from stdlib" $ do
+      testCompilationAndOutput "atoi.kk" "42\n"
     it "declares and prints a 'foo' variable" $ do
       testCompilationAndOutput "var.kk" "42\n"
     it "declares, reassign and prints a 'foo' variable" $ do
@@ -139,6 +149,8 @@ main = hspec $ do
       testCompilationAndOutput "while.kk" "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n"
     it "prints numbers from 0 to 9 using a for loop" $ do
       testCompilationAndOutput "for.kk" "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n"
+    it "correctly handles unary operators" $ do
+      testCompilationAndOutput "un_op.kk" "-1\n-1.000000\n0\n1\n"
     it "correctly handles comparison operators" $ do
       testCompilationAndOutput "comp_op.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
     it "correctly handles comparison operators on doubles" $ do
@@ -154,4 +166,4 @@ main = hspec $ do
     it "auto infer int type to double type if needed on func call" $ do
       testCompilationAndOutput "cast_int_to_double.kk" "42.000000\n"
     it "handle multi-type computing with operators" $ do
-      testCompilationAndOutput "multi_type_compute.kk" "1764.000000\n1764.000000\n42\n42\n42.000000\n42.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n"
+      testCompilationAndOutput "multi_type_compute.kk" "1764.000000\n1764.000000\n42\n42\n42.000000\n42.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n2\n"

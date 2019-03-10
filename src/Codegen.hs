@@ -35,6 +35,18 @@ import qualified Syntax
 
 align = 8
 
+iunops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> m AST.Operand)
+iunops = Map.fromList
+  [ (Syntax.Minus, sub $ intv 0)
+  , (Syntax.Not, icmp IP.EQ $ intv 0)
+  ]
+
+funops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> m AST.Operand)
+funops = Map.fromList
+  [ (Syntax.Minus, fsub $ doublev 0)
+  , (Syntax.Not, fcmp FP.OEQ $ doublev 0)
+  ]
+
 ibinops :: MonadIRBuilder m => Map.Map Syntax.Op (AST.Operand -> AST.Operand -> m AST.Operand)
 ibinops = Map.fromList
   [ (Syntax.Plus, add)
@@ -66,17 +78,13 @@ fbinops = Map.fromList
 getIR :: IRBuilderT ModuleBuilder ModuleBuilderState
 getIR = liftModuleState $ get
 
-getMB :: ModuleBuilder ModuleBuilderState
-getMB = liftModuleState $ get
-
 toBS :: AST.Name -> BS.ShortByteString
-toBS (AST.Name n) = n
 toBS (AST.UnName n) = BS.toShort $ C8.pack $ drop 1 $ show n
 
 zipVaArgs :: [a] -> [b] -> [(a, Maybe b)]
 zipVaArgs as bs = zipVaArgs' as bs []
   where
-    zipVaArgs' [] _ out = out
+    zipVaArgs' [] [] out = out
     zipVaArgs' (a:as) [] out = zipVaArgs' as [] $ out ++ [(a, Nothing)]
     zipVaArgs' (a:as) (b:bs) out = zipVaArgs' as bs $ out ++ [(a, Just b)]
 
@@ -193,15 +201,26 @@ codegen ast (Syntax.Call fname fargs) = do
           _ -> codegen ast a
         return (arg, [])
 codegen ast e@(Syntax.BinOp op lhs rhs) = do
-  state <- getIR
   let opType = inferTypeFromAst [ast] e
   let retType = getStrongType [ast] e
   let binops = if opType == int then ibinops else fbinops
   case Map.lookup op binops of
     Just fn -> do
-      lhs'  <- codegen ast lhs >>= (`as` opType)
+      lhs' <- codegen ast lhs >>= (`as` opType)
+      rhs' <- codegen ast rhs >>= (`as` opType)
+      res  <- fn lhs' rhs'
+      case retType of
+        IntegerType 1 -> res `as` int
+        _ -> res `as` retType
+    Nothing -> error $ "no such operator: " ++ (show op)
+codegen ast e@(Syntax.UnOp op rhs) = do
+  let opType = inferTypeFromAst [ast] e
+  let retType = getStrongType [ast] e
+  let unops = if opType == int then iunops else funops
+  case Map.lookup op unops of
+    Just fn -> do
       rhs'  <- codegen ast rhs >>= (`as` opType)
-      res   <- fn lhs' rhs'
+      res   <- fn rhs'
       case retType of
         IntegerType 1 -> res `as` int
         _ -> res `as` retType

@@ -23,6 +23,7 @@ import qualified LLVM.AST.IntegerPredicate       as IP
 import qualified LLVM.AST.AddrSpace              as A
 import           LLVM.IRBuilder.Internal.SnocList
 
+import           Debug.Trace
 import           Helpers
 import qualified Syntax
 
@@ -147,6 +148,7 @@ inferTypes name lhsType rhsType
 
 getStrongType :: [Syntax.Expr] -> Syntax.Expr -> Type
 getStrongType ast (Syntax.BinOp op lhs rhs) = snd $ inferTypes (show op) (getStrongType ast lhs) (getStrongType ast rhs)
+getStrongType ast (Syntax.UnOp Syntax.Not _) = bool
 getStrongType ast e = inferTypeInternal (Just ast) Nothing e
 
 inferTypeInternal :: Maybe [Syntax.Expr] -> Maybe ModuleBuilderState -> Syntax.Expr -> Type
@@ -164,6 +166,7 @@ inferTypeInternal ast s (Syntax.For _ _ _ b)          = inferTypeInternal ast s 
 inferTypeInternal (Just ast) _ (Syntax.Call fname _)  = getFnRetTypeByName' ast (AST.Name fname)
 inferTypeInternal _ (Just s) (Syntax.Call fname _)    = getFnRetTypeByName s (AST.Name fname)
 inferTypeInternal ast s (Syntax.BinOp op lhs rhs)     = fst $ inferTypes (show op) (inferTypeInternal ast s lhs) (inferTypeInternal ast s rhs)
+inferTypeInternal ast s (Syntax.UnOp op rhs)          = inferTypeInternal ast s rhs
 inferTypeInternal _ _ e                               = error $ "failed to infer type of node: " ++ (show e)
 
 inferType :: ModuleBuilderState -> Syntax.Expr -> Type
