@@ -43,6 +43,7 @@ extra-deps:
 - command-0.1.1
 - containers-0.6.0.1
 - encode-string-0.1.0.0
+- pretty-terminal-0.1.0.0
 
 # - llvm-config-7.0.0m
 

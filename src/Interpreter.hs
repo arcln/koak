@@ -3,6 +3,7 @@ module Interpreter (runInterpreter) where
 import           System.IO
 import           Control.Exception
 
+import           Helpers
 import qualified Syntax
 import qualified Compiler
 
@@ -16,7 +17,7 @@ runInterpreter mod = do
     if length input == 0 then runInterpreter $ previousFuncs mod else do
       let finput = if last input /= ';' then input ++ ";" else input
       case Syntax.parse finput of
-        Left ((i, j), err) -> putStrLn err
+        Left err -> printError err
         Right exprs -> do
           p <- Compiler.hasArg "--ast"
           case p of
