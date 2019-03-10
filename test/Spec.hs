@@ -105,9 +105,9 @@ main = hspec $ do
       testKoak "error.kk" "error: cannot cast FloatingPointType {floatingPointType = DoubleFP} to PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}\n"
     it "outputs an error when variable name not found" $ do
       testKoak "var_error.kk" "error: could not find type of variable Name \"aze\" in the ast\n"
-    it "outputs an error when assignin an unknown variable" $ do
+    it "outputs an error when assigning an unknown variable" $ do
       testKoak "assign_error.kk" "error: could not find type of variable Name \"aze\" in the ast\n"
-    it "outputs an error when assignin a constant" $ do
+    it "outputs an error when assigning a constant" $ do
       testKoak "assign_const.kk" "error: cannot assign constant \"x\"\n"
     it "outputs an error when adding a string and a number" $ do
       testKoak "invalid_add.kk" "error: ?"
@@ -117,6 +117,8 @@ main = hspec $ do
       testJit "" "" "> > "
     it "launches without arguments and return an int" $ do
       testJit "42" "" "> < 42\n> "
+    it "launches without arguments and return a negative int" $ do
+      testJit "-42" "" "> < -42\n> "
     it "launches without arguments and return a double" $ do
       testJit "42.0" "" "> < 42.0\n> "
     it "launches without arguments and return a string" $ do
@@ -133,6 +135,8 @@ main = hspec $ do
   describe "Generated binary" $ do
     it "prints Hello, World!" $ do
       testCompilationAndOutput "hello_world.kk" "Hello, world!\n"
+    it "executes the subject example" $ do
+      testCompilationAndOutput "subject.kk" "2.000000\n"
     it "calls atoi() from stdlib" $ do
       testCompilationAndOutput "atoi.kk" "42\n"
     it "declares and prints a 'foo' variable" $ do
@@ -146,7 +150,7 @@ main = hspec $ do
     it "prints numbers from 0 to 9 using a for loop" $ do
       testCompilationAndOutput "for.kk" "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n"
     it "correctly handles unary operators" $ do
-      testCompilationAndOutput "un_op.kk" "-1\n1\n-1.000000\n1.000000"
+      testCompilationAndOutput "un_op.kk" "-1\n-1.000000\n0\n1\n"
     it "correctly handles comparison operators" $ do
       testCompilationAndOutput "comp_op.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
     it "correctly handles comparison operators on doubles" $ do
