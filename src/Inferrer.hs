@@ -73,11 +73,6 @@ getFuncType (AST.GlobalDefinition (AST.Function _ _ _ _ _ funcType _ (params, is
     paramsTypes = map (\(AST.Parameter t _ _) -> t) params
     asPointer fn = PointerType (fn) (A.AddrSpace 0)
 
-getVarTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
-getVarTypeByName (ModuleBuilderState _ builderTypeDefs) name = case Map.lookup name builderTypeDefs of
-  Just t  -> t
-  Nothing -> error $ "could not find type of variable " ++ show name
-
 getFnTypeByName :: ModuleBuilderState -> AST.Name -> AST.Type
 getFnTypeByName mbs name = case getFuncDefByName mbs name of
   Just func -> getFuncType func
@@ -93,13 +88,15 @@ getFnRetTypeByName mbs name = case getFuncDefByName mbs name of
   Just func -> getFnRetType func
   Nothing   -> error $ "could not find return type of function " ++ show name
 
-getVarTypeByName' :: [Syntax.Expr] -> AST.Name -> AST.Type
-getVarTypeByName' ast name = case astFind' declByName ast of
-  Just (Syntax.Decl t _ _) -> t
+getVarTypeByName :: [Syntax.Expr] -> AST.Name -> AST.Type
+getVarTypeByName ast name = case astFind' declByName ast of
+  Just (Syntax.Arg n t) -> t
+  Just (Syntax.Decl t _ _) -> ptr t
   Nothing -> error $ "could not find type of variable " ++ show name ++ " in the ast"
   where
-    declByName d@(Syntax.Decl _ dname _ ) = (AST.Name dname) == name
-    declByName _                          = False
+    declByName d@(Syntax.Arg aname _)    = (AST.Name aname) == name
+    declByName d@(Syntax.Decl _ dname _) = (AST.Name dname) == name
+    declByName _                         = False
 
 getFnRetTypeByName' :: [Syntax.Expr] -> AST.Name -> AST.Type
 getFnRetTypeByName' ast name = case astFind' funcByName ast of
@@ -112,7 +109,9 @@ getFnRetTypeByName' ast name = case astFind' funcByName ast of
     funcByName _                                = False
 
 astFind' :: (Syntax.Expr -> Bool) -> [Syntax.Expr] -> Maybe Syntax.Expr
-astFind' cond exprs = case catMaybes $ map (astFind cond) exprs of
+astFind' cond exprs = orMaybes $ map (astFind cond) exprs
+
+orMaybes maybes = case catMaybes maybes of
   (x:_) -> Just x
   []    -> Nothing
 
@@ -120,7 +119,8 @@ astFind :: (Syntax.Expr -> Bool) -> Syntax.Expr -> Maybe Syntax.Expr
 astFind cond b@(Syntax.Block exprs)             = astFind' cond exprs
 astFind cond d@(Syntax.Decl _ _ expr)           = if cond d then Just d else Nothing
 astFind cond f@(Syntax.Function _ exprs _ expr) = if cond f then Just f else astFind' cond (expr:exprs)
-astFind cond e@(Syntax.Extern _ _ _ _)          = if cond e then Just e else Nothing
+astFind cond a@(Syntax.Arg {})                  = if cond a then Just a else Nothing
+astFind cond e@(Syntax.Extern {})               = if cond e then Just e else Nothing
 astFind cond i@(Syntax.If c thenb elseb)        = astFind' cond [c, thenb, elseb]
 astFind cond w@(Syntax.While a b)               = astFind' cond [a, b]
 astFind cond f@(Syntax.For a b c d)             = astFind' cond [a, b, c, d]
@@ -145,36 +145,29 @@ inferTypes name lhsType rhsType
     inferRetType _ "Gte"   = bool
     inferRetType d _       = d
 
-getStrongType :: ModuleBuilderState -> Syntax.Expr -> Type
-getStrongType s (Syntax.BinOp op lhs rhs) = snd $ inferTypes (show op) (getStrongType s lhs) (getStrongType s rhs)
-getStrongType s e = inferType s e
+getStrongType :: [Syntax.Expr] -> Syntax.Expr -> Type
+getStrongType ast (Syntax.BinOp op lhs rhs) = snd $ inferTypes (show op) (getStrongType ast lhs) (getStrongType ast rhs)
+getStrongType ast e = inferTypeInternal (Just ast) Nothing e
+
+inferTypeInternal :: Maybe [Syntax.Expr] -> Maybe ModuleBuilderState -> Syntax.Expr -> Type
+inferTypeInternal _ _ (Syntax.Block [])               = int
+inferTypeInternal ast s (Syntax.Block b)              = last $ map (inferTypeInternal ast s) b
+inferTypeInternal _ _ (Syntax.Data (Syntax.Double _)) = Types.double
+inferTypeInternal _ _ (Syntax.Data (Syntax.Int _))    = int
+inferTypeInternal _ _ (Syntax.Data (Syntax.Str _))    = charptr
+inferTypeInternal _ _ (Syntax.Decl t _ _)             = t
+inferTypeInternal ast s (Syntax.Assign _ expr)        = inferTypeInternal ast s expr
+inferTypeInternal (Just ast) _ (Syntax.Var name)      = getVarTypeByName ast (AST.Name name)
+inferTypeInternal ast s (Syntax.If _ thenb elseb)     = fst $ inferTypes "if-else" (inferTypeInternal ast s thenb) (inferTypeInternal ast s elseb)
+inferTypeInternal ast s (Syntax.While _ b)            = inferTypeInternal ast s b
+inferTypeInternal ast s (Syntax.For _ _ _ b)          = inferTypeInternal ast s b
+inferTypeInternal (Just ast) _ (Syntax.Call fname _)  = getFnRetTypeByName' ast (AST.Name fname)
+inferTypeInternal _ (Just s) (Syntax.Call fname _)    = getFnRetTypeByName s (AST.Name fname)
+inferTypeInternal ast s (Syntax.BinOp op lhs rhs)     = fst $ inferTypes (show op) (inferTypeInternal ast s lhs) (inferTypeInternal ast s rhs)
+inferTypeInternal _ _ e                               = error $ "failed to infer type of node: " ++ (show e)
 
 inferType :: ModuleBuilderState -> Syntax.Expr -> Type
-inferType _ (Syntax.Block [])               = int
-inferType s (Syntax.Block b)                = last $ map (inferType s) b
-inferType _ (Syntax.Data (Syntax.Double _)) = Types.double
-inferType _ (Syntax.Data (Syntax.Int _))    = int
-inferType _ (Syntax.Data (Syntax.Str _))    = charptr
-inferType _ (Syntax.Decl t _ _)             = t
-inferType s (Syntax.Assign _ expr)          = inferType s expr
-inferType s (Syntax.Var name)               = getVarTypeByName s (AST.Name name)
-inferType s (Syntax.If _ thenb elseb)       = fst $ inferTypes "if-else" (inferType s thenb) (inferType s elseb)
-inferType s (Syntax.While _ b)              = inferType s b
-inferType s (Syntax.For _ _ _ b)            = inferType s b
-inferType s (Syntax.Call fname _)           = getFnRetTypeByName s (AST.Name fname)
-inferType s (Syntax.BinOp op lhs rhs)       = fst $ inferTypes (show op) (inferType s lhs) (inferType s rhs)
+inferType s e = inferTypeInternal Nothing (Just s) e
 
 inferTypeFromAst :: [Syntax.Expr] -> Syntax.Expr -> Type
-inferTypeFromAst _   (Syntax.Block [])               = int
-inferTypeFromAst ast (Syntax.Block b)                = last $ map (inferTypeFromAst ast) b
-inferTypeFromAst _   (Syntax.Data (Syntax.Double _)) = Types.double
-inferTypeFromAst _   (Syntax.Data (Syntax.Int _))    = int
-inferTypeFromAst _   (Syntax.Data (Syntax.Str _))    = charptr
-inferTypeFromAst _   (Syntax.Decl t _ _)             = t
-inferTypeFromAst ast (Syntax.Assign _ expr)          = inferTypeFromAst ast expr
-inferTypeFromAst ast (Syntax.Var name)               = getVarTypeByName' ast (AST.Name name)
-inferTypeFromAst ast (Syntax.If _ thenb elseb)       = fst $ inferTypes "if-else" (inferTypeFromAst ast thenb) (inferTypeFromAst ast elseb)
-inferTypeFromAst ast (Syntax.While _ b)              = inferTypeFromAst ast b
-inferTypeFromAst ast (Syntax.For _ _ _ b)            = inferTypeFromAst ast b
-inferTypeFromAst ast (Syntax.Call fname _)           = getFnRetTypeByName' ast (AST.Name fname)
-inferTypeFromAst ast (Syntax.BinOp op lhs rhs)       = fst $ inferTypes (show op) (inferTypeFromAst ast lhs) (inferTypeFromAst ast rhs)
+inferTypeFromAst ast e = inferTypeInternal (Just ast) Nothing e

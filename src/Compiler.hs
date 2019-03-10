@@ -21,6 +21,7 @@ import           LLVM.AST.Type
 import qualified LLVM.AST              as AST
 import qualified LLVM.AST.Constant     as C
 import qualified LLVM.ExecutionEngine  as EE
+import           Control.Exception
 import           System.Command
 
 import           Codegen
@@ -53,23 +54,43 @@ jitCompiler c = EE.withMCJIT c optlevel model ptrelim fastins
     ptrelim  = Nothing
     fastins  = Nothing
 
-compile :: [Syntax.Expr] -> IO String
+-- runJIT :: AST.Module -> IO (Either String AST.Module)
+-- runJIT mod = do
+--   withContext $ \context ->
+--     runExceptT $ withModuleFromAST context mod $ \m ->
+--       withPassManager passes $ \pm -> do
+--         runPassManager pm m
+--         optmod <- moduleAST m
+--         s <- moduleLLVMAssembly m
+--         putStrLn s
+--         return optmod
+
+removeCallStack :: String -> String
+removeCallStack s = case findIndex (\c -> c == '\n') s of
+  Just idx -> take idx s
+  Nothing -> s
+
+compile :: [Syntax.Expr] -> IO (Either String String)
 compile expr = withContext $ \context -> do
   let (_, ast) = preprocess expr
-  withModuleFromAST context ast $ \compiledModule ->
+  result <- try (withModuleFromAST context ast $ \compiledModule ->
     withPassManager optimizationPasses $ \pm -> do
       p <- hasArg "-O"
       case p of
         True -> runPassManager pm compiledModule
         _ -> pure False
       asm <- moduleLLVMAssembly compiledModule
-      return $ BS.unpack asm
+      return $ BS.unpack asm) :: IO (Either SomeException String)
+  case result of
+    Left (SomeException e) -> return $ Left $ "error: " ++ (removeCallStack $ show e)
+    Right asm -> return $ Right asm
+   
 
 jit :: [Syntax.Expr] -> IO ()
 jit expr = withContext $ \context ->
   jitCompiler context $ \executionEngine -> do
     let (retType, ast) = preprocess expr
-    withModuleFromAST context ast $ \compiledModule ->
+    result <- try (withModuleFromAST context ast $ \compiledModule ->
       withPassManager optimizationPasses $ \pm -> do
         p' <- hasArg "-O"
         case p' of
@@ -88,9 +109,12 @@ jit expr = withContext $ \context ->
           case mainfn of
             Just fn -> do
               putStr "< "
-              runCEntrypoint retType fn -- FIXME
+              runCEntrypoint retType fn
             Nothing -> return ()
-        return ()
+        return ()) :: IO (Either SomeException ())
+    case result of
+      Left (SomeException e) -> putStrLn $ "error: " ++ (show e)
+      _ -> pure ()
   where
     runCEntrypoint (Just (IntegerType 32)) fn = do
       res <- haskFunInt (castFunPtr fn :: FunPtr (IO Int))
@@ -103,6 +127,7 @@ jit expr = withContext $ \context ->
       str <- peekCString res
       putStrLn str
     runCEntrypoint Nothing fn = pure ()
+    runCEntrypoint (Just t) fn = error $ "received type " ++ (show t)
 
 runCompiler :: String -> IO ()
 runCompiler filename = do
@@ -119,13 +144,16 @@ runCompiler filename = do
           putStrLn "===================\n"
         _ -> pure ()
       asm <- Compiler.compile $ exprs
-      case showAsm of
-        True -> do
+      case (asm, showAsm) of
+        (Right asm', True) -> do
           putStrLn "======= ASM ======="
-          putStrLn asm
+          putStrLn asm'
           putStrLn "===================\n"
         _ -> pure ()
-      writeFile (filename ++ ".ll") asm
-      command_ [] compiler [filename ++ ".ll"]
-      command_ [] linker [filename ++ ".s"]
-      -- command_ [] "rm" ["-f", filename ++ ".ll", filename ++ ".s"]
+      case asm of 
+        Right asm' -> do
+          writeFile (filename ++ ".ll") asm'
+          command_ [] compiler [filename ++ ".ll"]
+          command_ [] linker [filename ++ ".s"]
+          command_ [] "rm" ["-f", filename ++ ".ll", filename ++ ".s"]
+        Left e -> putStrLn e

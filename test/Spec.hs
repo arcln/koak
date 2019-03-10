@@ -9,9 +9,10 @@ import qualified LLVM.AST              as AST
 import qualified Compiler
 import qualified Syntax
 import qualified Testcases
+import Debug.Trace
 
 exec :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, ProcessHandle)
-exec cmd = createProcess (proc "bash" ["-c", cmd]){ std_out = CreatePipe }
+exec cmd = createProcess (proc "bash" ["-c", cmd]){ std_out = CreatePipe, std_err = CreatePipe }
 
 testcasePath :: String -> String -> String
 testcasePath folder path = "./test/testcases/" ++ folder ++ ('/':path)
@@ -28,12 +29,18 @@ testCompilationAndOutput path expected = do
 
 testKoak :: String -> String -> IO ()
 testKoak path expected = do
-  (_, hout, _, _) <- exec $ "stack exec koak-exe -- " ++ (testcasePath "kaleidoscope" path)
+  (_, hout, herr, _) <- exec $ "stack exec koak-exe -- " ++ (testcasePath "kaleidoscope" path) ++ " 2>&1"
   case hout of
     Nothing   -> do putStrLn "An error occurred..."; exitFailure
     Just hout -> do
       output <- hGetContents hout
-      output `shouldBe` expected
+      stderrStr <- getStderr herr
+      (output ++ stderrStr) `shouldBe` expected
+  where
+    getStderr herr = case herr of
+      Nothing -> return ""
+      Just herr -> hGetContents herr
+        
 
 testJit :: String -> String -> String -> IO ()
 testJit input args expected = do
@@ -48,7 +55,9 @@ testCodeGeneration :: [Syntax.Expr] -> String -> IO ()
 testCodeGeneration es expectedPath = do
   asm <- Compiler.compile es
   expected <- readFile $ testcasePath "asm" expectedPath
-  asm `shouldBe` expected
+  case asm of
+    Right asm' -> asm' `shouldBe` expected
+    Left x -> (show x) `shouldBe` expected
 
 testParsing :: String -> [Syntax.Expr] -> IO ()
 testParsing path expected = do
@@ -59,10 +68,6 @@ testParsing path expected = do
 
 main :: IO ()
 main = hspec $ do
-  describe "Boilerplate" $ do
-    -- it "works" $ testCompilationAndOutput "error.kk" ""
-    it "don't crash on LLVM error" $ "crash" `shouldBe` "works"
-
   describe "Parsing" $ do
     it "parses 42 as int" $ do
       testParsing "42.kk" Testcases.int42
@@ -85,7 +90,7 @@ main = hspec $ do
     it "generates two functions with one calling the other and returning a double" $ do
       testCodeGeneration Testcases.fnCallNoArgs42_0 "fn_call_42.0.asm"
     it "generates two functions with one calling the other with an argument" $ do
-      testCodeGeneration Testcases.fnCallDoubleArg "42.0.asm" -- could not work, depending on compiler optimisations
+      testCodeGeneration Testcases.fnCallDoubleArg "fn_ret_call_42.0.asm" -- could not work, depending on compiler optimisations
     it "generates a function taking no arguments and returning a double" $ do
       testCodeGeneration Testcases.fnNoArgs42_0 "no_arguments_42.0.asm"
 
@@ -96,10 +101,16 @@ main = hspec $ do
       testKoak "hello_world.kk --ast" "======= AST =======\n[Extern \"printf\" [PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}] (IntegerType {typeBits = 32}) True,Block [Call \"printf\" [Data (Str \"Hello, world!\\n\")]]]\n===================\n\n"
     it "displays AST and ASM with both --ast and --asm switches" $ do
       testKoak "hello_world.kk --ast" "======= AST =======\n[Extern \"printf\" [PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}] (IntegerType {typeBits = 32}) True,Block [Call \"printf\" [Data (Str \"Hello, world!\\n\")]]]\n===================\n\n"
+    it "don't crash on LLVM error" $ do
+      testKoak "error.kk" "error: cannot cast FloatingPointType {floatingPointType = DoubleFP} to PointerType {pointerReferent = IntegerType {typeBits = 8}, pointerAddrSpace = AddrSpace 0}\n"
+    it "outputs an error when variable name not found" $ do
+      testKoak "var_error.kk" "error: could not find type of variable Name \"aze\" in the ast\n"
+    it "outputs an error when assignin an unknown variable" $ do
+      testKoak "assign_error.kk" "error: could not find type of variable Name \"aze\" in the ast\n"
 
   describe "JIT interpreter" $ do
     it "launches without arguments and exits with no error code" $ do
-      testJit "" "" "> "
+      testJit "" "" "> > "
     it "launches without arguments and return an int" $ do
       testJit "42" "" "> < 42\n> "
     it "launches without arguments and return a double" $ do
@@ -113,7 +124,7 @@ main = hspec $ do
     it "launches with both --asm and --ast switches" $ do
       testJit "42" "--asm --ast" "> ======= AST =======\n[Block [Data (Int 42)]]\n===================\n\n======= ASM =======\n; ModuleID = 'main'\nsource_filename = \"<string>\"\n\ndefine i32 @main() {\nentry:\n  ret i32 42\n}\n\n===================\n\n< 42\n> "
     it "executes multiples instructions" $ do
-      testJit "42\nusing printf(string ...): int; printf(\"aze\\\\n\");" "" "> < 42\n> < 4\n> aze\n"
+      testJit "42\n43\n44\n45\n" "" "> < 42\n> < 43\n> < 44\n> < 45\n> > "
 
   describe "Koak" $ do
     it "prints Hello, World!" $ do
@@ -122,10 +133,6 @@ main = hspec $ do
       testCompilationAndOutput "var.kk" "42\n"
     it "declares, reassign and prints a 'foo' variable" $ do
       testCompilationAndOutput "assign.kk" "42\n"
-    it "outputs an error when variable name not found" $ do
-      testCompilationAndOutput "var_error.kk" ""
-    it "outputs an error when assignin an unknown variable" $ do
-      testCompilationAndOutput "assign_error.kk" ""
     it "handles conditionnal branchings using if keyword" $ do
       testCompilationAndOutput "if.kk" "yes\nno\nyes\n"
     it "prints numbers from 0 to 9 using a while loop" $ do
@@ -136,17 +143,15 @@ main = hspec $ do
       testCompilationAndOutput "comp_op.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
     it "correctly handles comparison operators on doubles" $ do
       testCompilationAndOutput "comp_op_double.kk" "yes\nno\nno\nyes\nyes\nno\nno\nyes\nyes\nno\nyes\nno\nyes\nyes\n"
-      -- "crash" `shouldBe` "works"
     it "correctly handles computing operators" $ do
       testCompilationAndOutput "calc_op.kk" "2\n10000002\n4\n0\n-9999998\n5\n0\n0\n0\n0\n100\n50\n2\n5\n0\n0\n"
     it "correctly handles computing operators on doubles" $ do
       testCompilationAndOutput "calc_op_double.kk" "2.000000\n10000002.000000\n4.000000\n0.000000\n-9999998.000000\n5.000000\n0.000000\n0.000000\n0.000000\n0.000000\n100.000000\n50.000000\n2.000000\n5.000000\n0.100000\n0.000000\n"
-      -- "crash" `shouldBe` "works"
     it "correctly handles operators priority" $ do
       testCompilationAndOutput "prio_op.kk" "2\n10000008\n4\n16\n5\n1\n-9\n8\n1\n2\n"
     it "auto infer bit type to integer type if needed on func call" $ do
       testCompilationAndOutput "cast_bit_to_int.kk" "1\n"
     it "auto infer int type to double type if needed on func call" $ do
-      testCompilationAndOutput "cast_int_to_double.kk" "42\n"
+      testCompilationAndOutput "cast_int_to_double.kk" "42.000000\n"
     it "handle multi-type computing with operators" $ do
       testCompilationAndOutput "multi_type_compute.kk" "1764.000000\n1764.000000\n42\n42\n42.000000\n42.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n1764.000000\n"

@@ -80,103 +80,106 @@ zipVaArgs as bs = zipVaArgs' as bs []
     zipVaArgs' (a:as) [] out = zipVaArgs' as [] $ out ++ [(a, Nothing)]
     zipVaArgs' (a:as) (b:bs) out = zipVaArgs' as bs $ out ++ [(a, Just b)]
 
-buildFunction :: Syntax.Name -> [Syntax.Expr] -> AST.Type -> Syntax.Expr -> ModuleBuilder AST.Operand
-buildFunction name args retType body = function' (AST.Name name) args' retType bodyBuilder
+buildFunction :: Syntax.Expr-> ModuleBuilder AST.Operand
+buildFunction f@(Syntax.Function name args retType body) = function' (AST.Name name) args' retType bodyBuilder
   where
     args' = map arg args
     arg (Syntax.Arg n t) = (t, LLVM.IRBuilder.ParameterName n, [])
     bodyBuilder args = mdo
       entry <- block `named` "entry"
-      ret =<< codegen body
+      ret =<< codegen f body
 
-codegen :: Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
-codegen (Syntax.Block []) = do
+codegen :: Syntax.Expr -> Syntax.Expr -> IRBuilderT ModuleBuilder AST.Operand
+codegen ast (Syntax.Block []) = do
   unreachable
   return $ intv 0
-codegen (Syntax.Block b) = do
-  ops <- sequence $ map codegen b
+codegen ast (Syntax.Block b) = do
+  ops <- sequence $ map (codegen ast) b
   return $ seq ops (last ops)
-codegen (Syntax.Data (Syntax.Double v)) = pure $ doublev v
-codegen (Syntax.Data (Syntax.Int v)) = pure $ intv v
-codegen (Syntax.Data (Syntax.Str s)) = do
+codegen ast (Syntax.Data (Syntax.Double v)) = pure $ doublev v
+codegen ast (Syntax.Data (Syntax.Int v)) = pure $ intv v
+codegen ast (Syntax.Data (Syntax.Str s)) = do
   name <- fresh
   globalStringPtr s name
   let str = ref (ptr (ArrayType (fromIntegral $ length s + 1) char)) name
   ptr <- bitcast str charptr
   return ptr
-codegen (Syntax.Decl t n e) = do
+codegen ast (Syntax.Decl t n e) = do
   var <- (alloca t (Just $ intv 1) (align :: Word32)) `named` n
-  init <- codegen e
+  init <- codegen ast e
   store var align init
   val <- load var align
   return val
-codegen (Syntax.Assign n e) = do
-  var <- codegen $ Syntax.Var n
-  init <- codegen e
-  store var align init
-  val <- load var align
-  return $ intv 0
-codegen v'@(Syntax.Var v) = do
-  state <- getIR
-  let varType = inferType state v'
+codegen ast (Syntax.Assign n e) = do
+  let varType = inferTypeFromAst [ast] (Syntax.Var n)
+  let var = local varType n
+  case varType of
+    (PointerType _ _) -> do
+      init <- codegen ast e
+      store var align init
+      val <- load var align
+      return val
+    _                 -> error $ "cannot assign constant " ++ (show n)
+codegen ast v'@(Syntax.Var v) = do
+  let varType = inferTypeFromAst [ast] v'
   let var = local varType v
   case varType of
     (PointerType _ _) -> load var align
     _                 -> return var
-codegen (Syntax.If cond thenb elseb) = mdo
+codegen ast (Syntax.If cond thenb elseb) = mdo
   tname <- fresh
   fname <- fresh
   ename <- fresh
 
-  condv' <- codegen cond
-  condv  <- trunc condv' bool
+  condv <- codegen ast cond >>= (`as` bool)
   condBr condv tname fname
 
   emitBlockStart tname
-  tout <- codegen thenb
+  tout <- codegen ast thenb
   br end
 
   emitBlockStart fname
-  fout <- codegen elseb
+  fout <- codegen ast elseb
   br end
 
   end <- block `named` (toBS ename)
   node <- phi [(tout, tname), (fout, fname)]
   return node
-codegen (Syntax.While cond b) = mdo
+codegen ast (Syntax.While cond b) = mdo
   sname <- fresh
   bname <- fresh
   ename <- fresh
 
   br start
   start <- block `named` (toBS sname)
-  condv <- codegen cond
+  condv <- codegen ast cond >>= (`as` bool)
   condBr condv bname ename
 
   emitBlockStart bname
-  out <- codegen b -- foldl (\_ e -> codegen e) condm b
+  _ <- codegen ast b -- foldl (\_ e -> codegen ast e) condm b
   br start
 
   emitBlockStart ename
-  return out
-codegen (Syntax.For init cond inc body) = do
+  return $ intv 0
+codegen ast (Syntax.For init cond inc body) = mdo
   sname <- fresh
   bname <- fresh
   ename <- fresh
 
-  _ <- codegen init
+  _ <- codegen ast init
+  br start
   start <- block `named` (toBS sname)
-  condv <- codegen cond
+  condv <- codegen ast cond >>= (`as` bool)
   condBr condv bname ename
 
   emitBlockStart bname
-  out <- codegen body
-  _ <- codegen inc
+  _ <- codegen ast body
+  _ <- codegen ast inc
   br start
 
   emitBlockStart ename
-  return out
-codegen (Syntax.Call fname fargs) = do
+  return $ intv 0
+codegen ast (Syntax.Call fname fargs) = do
   state <- getIR
   let funcArgs = getFnArgsTypeByName state (AST.Name fname)
   let funcRet = getFnRetTypeByName state (AST.Name fname)
@@ -186,36 +189,37 @@ codegen (Syntax.Call fname fargs) = do
     where
       genArg (a, t) = do
         arg <- case t of
-          Just t' -> codegen a >>= (`as` t')
-          _ -> codegen a
+          Just t' -> codegen ast a >>= (`as` t')
+          _ -> codegen ast a
         return (arg, [])
-codegen e@(Syntax.BinOp op lhs rhs) = do
+codegen ast e@(Syntax.BinOp op lhs rhs) = do
   state <- getIR
-  let opType = inferType state e
-  let retType = getStrongType state e
+  let opType = inferTypeFromAst [ast] e
+  let retType = getStrongType [ast] e
   let binops = if opType == int then ibinops else fbinops
   case Map.lookup op binops of
     Just fn -> do
-      lhs'  <- codegen lhs
-      lhs'' <- lhs' `as` opType
-      rhs'  <- codegen rhs
-      rhs'' <- rhs' `as` opType
-      res   <- fn lhs'' rhs''
+      lhs'  <- codegen ast lhs >>= (`as` opType)
+      rhs'  <- codegen ast rhs >>= (`as` opType)
+      res   <- fn lhs' rhs'
       case retType of
         IntegerType 1 -> res `as` int
         _ -> res `as` retType
     Nothing -> error $ "no such operator: " ++ (show op)
-codegen expr = error $ "uncomputable node found in AST: " ++ (show expr)
+codegen ast expr = error $ "uncomputable node found in AST: " ++ (show expr)
 
 startCodegen :: [Syntax.Expr] -> ([Syntax.Expr], [Syntax.Expr]) -> ModuleBuilder (Maybe Type)
 startCodegen [] ([], _)       = return Nothing
 startCodegen [] (mainEs, ast) = do
   let retType = inferTypeFromAst ast insts
-  buildFunction "main" [] retType insts
-  return $ Just retType
-    where insts = Syntax.Block $ reverse mainEs
-startCodegen (Syntax.Function name args retType body:es) state = do
-  buildFunction name args retType body
+  buildFunction $ Syntax.Function "main" [] (getRetType retType) insts
+  return $ Just (getRetType retType)
+    where
+      insts = Syntax.Block $ reverse mainEs
+      getRetType (PointerType (IntegerType 32) _) = int
+      getRetType t = t
+startCodegen (f@(Syntax.Function {}):es) state = do
+  buildFunction f
   startCodegen es state
 startCodegen (Syntax.Extern name argsType retType True:es) state = do
   externVarArgs (AST.Name name) argsType retType
@@ -224,4 +228,3 @@ startCodegen (Syntax.Extern name argsType retType False:es) state = do
   extern' (AST.Name name) argsType retType
   startCodegen es state
 startCodegen (expr:es) (mainEs, ast) = startCodegen es (expr:mainEs, ast)
-
