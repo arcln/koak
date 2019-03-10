@@ -146,10 +146,10 @@ inferTypes name lhsType rhsType
     inferRetType _ "Gte"   = bool
     inferRetType d _       = d
 
-getStrongType :: [Syntax.Expr] -> Syntax.Expr -> Type
-getStrongType ast (Syntax.BinOp op lhs rhs) = snd $ inferTypes (show op) (getStrongType ast lhs) (getStrongType ast rhs)
-getStrongType ast (Syntax.UnOp Syntax.Not _) = bool
-getStrongType ast e = inferTypeInternal (Just ast) Nothing e
+getStrongType :: Maybe ModuleBuilderState -> [Syntax.Expr] -> Syntax.Expr -> Type
+getStrongType m ast (Syntax.BinOp op lhs rhs) = snd $ inferTypes (show op) (getStrongType m ast lhs) (getStrongType m ast rhs)
+getStrongType m ast (Syntax.UnOp Syntax.Not _) = bool
+getStrongType m ast e = inferTypeInternal (Just ast) m e
 
 inferTypeInternal :: Maybe [Syntax.Expr] -> Maybe ModuleBuilderState -> Syntax.Expr -> Type
 inferTypeInternal _ _ (Syntax.Block [])               = int
@@ -163,11 +163,11 @@ inferTypeInternal (Just ast) _ (Syntax.Var name)      = getVarTypeByName ast (AS
 inferTypeInternal ast s (Syntax.If _ thenb elseb)     = fst $ inferTypes "if-else" (inferTypeInternal ast s thenb) (inferTypeInternal ast s elseb)
 inferTypeInternal ast s (Syntax.While _ b)            = inferTypeInternal ast s b
 inferTypeInternal ast s (Syntax.For _ _ _ b)          = inferTypeInternal ast s b
-inferTypeInternal (Just ast) _ (Syntax.Call fname _)  = getFnRetTypeByName' ast (AST.Name fname)
 inferTypeInternal _ (Just s) (Syntax.Call fname _)    = getFnRetTypeByName s (AST.Name fname)
+inferTypeInternal (Just ast) _ (Syntax.Call fname _)  = getFnRetTypeByName' ast (AST.Name fname)
 inferTypeInternal ast s (Syntax.BinOp op lhs rhs)     = fst $ inferTypes (show op) (inferTypeInternal ast s lhs) (inferTypeInternal ast s rhs)
 inferTypeInternal ast s (Syntax.UnOp op rhs)          = inferTypeInternal ast s rhs
-inferTypeInternal _ _ e                               = error $ "failed to infer type of node: " ++ (show e)
+-- inferTypeInternal _ _ e                               = error $ "failed to infer type of node: " ++ (show e)
 
 inferType :: ModuleBuilderState -> Syntax.Expr -> Type
 inferType s e = inferTypeInternal Nothing (Just s) e

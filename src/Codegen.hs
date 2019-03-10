@@ -201,8 +201,9 @@ codegen ast (Syntax.Call fname fargs) = do
           _ -> codegen ast a
         return (arg, [])
 codegen ast e@(Syntax.BinOp op lhs rhs) = do
-  let opType = inferTypeFromAst [ast] e
-  let retType = getStrongType [ast] e
+  state <- getIR
+  let opType = inferTypeInternal (Just [ast]) (Just state) e
+  let retType = getStrongType (Just state) [ast] e
   let binops = if opType == int then ibinops else fbinops
   case Map.lookup op binops of
     Just fn -> do
@@ -214,8 +215,9 @@ codegen ast e@(Syntax.BinOp op lhs rhs) = do
         _ -> res `as` retType
     Nothing -> error $ "no such operator: " ++ (show op)
 codegen ast e@(Syntax.UnOp op rhs) = do
-  let opType = inferTypeFromAst [ast] e
-  let retType = getStrongType [ast] e
+  state <- getIR
+  let opType = inferTypeInternal (Just [ast]) (Just state) e
+  let retType = getStrongType (Just state) [ast] e
   let unops = if opType == int then iunops else funops
   case Map.lookup op unops of
     Just fn -> do
