@@ -40,7 +40,7 @@ testKoak path expected = do
     getStderr herr = case herr of
       Nothing -> return ""
       Just herr -> hGetContents herr
-        
+
 
 testJit :: String -> String -> String -> IO ()
 testJit input args expected = do
@@ -110,7 +110,7 @@ main = hspec $ do
     it "outputs an error when assigning a constant" $ do
       testKoak "assign_const.kk" "error: cannot assign constant \"x\"\n"
     it "outputs an error when adding a string and a number" $ do
-      testKoak "invalid_add.kk" "error: ?"
+      testKoak "invalid_add.kk" "\ESC[1m1:6: \ESC[0m\ESC[1m\ESC[91merror: \ESC[0m\ESC[0munexpected token \ESC[1m\8216\"aze\";\8217\ESC[0m\n \"aze\";\n \ESC[1m\ESC[92m^\ESC[0m\ESC[0m\n"
 
   describe "JIT interpreter" $ do
     it "launches without arguments and exits with no error code" $ do
