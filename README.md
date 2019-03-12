@@ -35,7 +35,23 @@ You can also run it in command prompt mode:
 
 ## Example
 
+```C
+using getchar(): int;
+using printf(string ...): int;
 
+def printN(c: int n: int): int
+  for int i = 0, i < n, i = i + 1 in printf("%c", c);
+
+printf("Which char?\n");
+int a = getchar();
+getchar();
+printf("How many times?\n");
+int n = getchar();
+n = n - 48;
+
+printN(a, n);
+printf("\n");
+```
 
 ## Features
 
